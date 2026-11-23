@@ -1,0 +1,141 @@
+{
+  "_doc": "Static directory of the hackathon agent team. The LIVE roster is whatever is connected: `python agents/cli.py roster` or GET http://127.0.0.1:8890/roster. Keep this file as the source of truth for names/roles/topics so every component addresses the right agent.",
+  "bus": {
+    "default_port": 8890,
+    "port_file": "runs/bus.port",
+    "env": "ROBOT_BUS_URL",
+    "docs": "docs/PROTOCOL.md"
+  },
+  "agents": {
+    "armsmith-web": {
+      "kind": "simulator",
+      "engine": "three.js + Rapier (WASM) in the browser",
+      "desc": "Web port of the Unity ARMSMITH SO-101 arm sim. Physics, IK, scenarios, stall detector, recorder.",
+      "endpoint": "http://127.0.0.1:8891/ (static page)",
+      "subscribes": ["sim.cmd", "vision.hands"],
+      "publishes": ["sim.obs", "sim.event"],
+      "replies_on": "armsmith-web.reply",
+      "owner_dir": "sim/armsmith_web"
+    },
+    "fake-sim": {
+      "kind": "simulator",
+      "engine": "python (headless stub)",
+      "desc": "Deterministic protocol-complete stub sim with injectable faults. For testing controllers with no browser.",
+      "endpoint": "python agents/fake_sim.py",
+      "subscribes": ["sim.cmd"],
+      "publishes": ["sim.obs", "sim.event"],
+      "replies_on": "fake-sim.reply",
+      "owner_dir": "agents/fake_sim.py"
+    },
+    "mujoco": {
+      "kind": "simulator",
+      "engine": "MuJoCo 4.x (CPU, 32 threads)",
+      "desc": "The training physics engine. Same scenarios as the web sim; used for policy rollouts and evaluation.",
+      "endpoint": "python sim/py/",
+      "subscribes": ["sim.cmd"],
+      "publishes": ["sim.obs", "sim.event"],
+      "owner_dir": "sim/py, sim/mujoco"
+    },
+    "stall-controller": {
+      "kind": "controller",
+      "engine": "python",
+      "desc": "The learning loop's conductor: deterministic stall detector at tick rate -> Laya System-1 identification -> (Jev gate) -> local GLM System-2 reasoning on stall -> validates and issues the recovery -> labels the outcome.",
+      "endpoint": "python control/stall_controller.py",
+      "subscribes": ["sim.obs", "sim.event", "vision.hands", "vision.tape"],
+      "publishes": ["ctl.stall", "ctl.recovery", "sim.cmd"],
+      "owner_dir": "control/stall_controller.py"
+    },
+    "laya": {
+      "kind": "model",
+      "engine": "fine-tuned typed-decision model (GUT protocol)",
+      "desc": "System 1: fast, calibrated identification of progress / failure mode / recoverability.",
+      "endpoint": "http://127.0.0.1:8798/v1/systemone  (header X-Laya-Domain)",
+      "domain": "robot-ops",
+      "subscribes": [],
+      "publishes": [],
+      "owner_dir": "control/laya_client.py, control/robot_ops.schema.json",
+      "source_repo": "/home/fivelidz/projects/GLM_projects/Laya_integrations"
+    },
+    "jev": {
+      "kind": "model",
+      "engine": "remote calibrated decision API (TypeSafe)",
+      "desc": "Optional cheap pre-gate: 'is this stall worth waking System 2?' Needs network. Skipped automatically when offline.",
+      "endpoint": "MCP jev_decide",
+      "subscribes": [],
+      "publishes": [],
+      "owner_dir": "control/stall_controller.py"
+    },
+    "glm-s2": {
+      "kind": "model",
+      "engine": "Ollama glm-4.7-flash-abl:alexei-v3 (18 GB, local, AMD iGPU)",
+      "desc": "System 2: stall reasoner. Diagnoses the stall dossier and returns a bounded, symbolic recovery plan. Never outputs joint angles.",
+      "endpoint": "http://127.0.0.1:11434/api/generate",
+      "subscribes": [],
+      "publishes": [],
+      "owner_dir": "control/glm_s2.py"
+    },
+    "hand-tracker": {
+      "kind": "sensor",
+      "engine": "MediaPipe HandLandmarker + OpenCV",
+      "desc": "Camera -> 21 landmarks -> pinch/fist -> retargeted end-effector target.",
+      "endpoint": "python vision/hand_tracking/hand_tracker.py",
+      "subscribes": [],
+      "publishes": ["vision.hands", "vision.frame"],
+      "owner_dir": "vision/hand_tracking"
+    },
+    "tape-tracker": {
+      "kind": "sensor",
+      "engine": "OpenCV HSV + morphology",
+      "desc": "The blue-tape robot lineage, generalised to any colour marker; emits a steering signal.",
+      "endpoint": "python vision/tape_tracker/tape_tracker.py",
+      "subscribes": [],
+      "publishes": ["vision.tape", "vision.frame"],
+      "owner_dir": "vision/tape_tracker"
+    },
+    "marker-pose": {
+      "kind": "sensor",
+      "engine": "OpenCV ArUco + solvePnP",
+      "desc": "Metric 6-DoF pose of AprilTag/ArUco markers in the camera frame.",
+      "endpoint": "python vision/tape_tracker/marker_pose.py",
+      "subscribes": [],
+      "publishes": ["vision.marker"],
+      "owner_dir": "vision/tape_tracker/marker_pose.py"
+    },
+    "codex": {
+      "kind": "agent",
+      "engine": "OpenAI Codex (unlimited on the day)",
+      "desc": "The builder: writes/fixes sim, retargeting, training and deployment code. Works through a shell, so it drives the bus with agents/cli.py. Reads AGENTS.md at the repo root automatically.",
+      "endpoint": "shell: python agents/cli.py ...",
+      "subscribes": ["sim.obs", "sim.event", "ctl.stall", "ctl.recovery"],
+      "publishes": ["sim.cmd", "log"],
+      "owner_dir": "AGENTS.md, agents/tools_for_codex.md"
+    },
+    "orchestrator": {
+      "kind": "agent",
+      "engine": "GLM 5.3 (qalcode) + GLM 5.3 Flash workers",
+      "desc": "Plans, delegates to Flash workers, reviews. The human's chief of staff.",
+      "endpoint": "Task tool",
+      "subscribes": ["log"],
+      "publishes": ["log"],
+      "owner_dir": "docs/01_agent_team.md"
+    },
+    "gut-trainer": {
+      "kind": "trainer",
+      "engine": "MCP gut-trainer (Laya_integrations/mcp_finetune)",
+      "desc": "Trains + gates the robot-ops domain from the controller's labelled stalls so System 1 learns what System 2 taught it.",
+      "endpoint": "MCP gut_train_start / gut_train_status / gut_register",
+      "subscribes": [],
+      "publishes": [],
+      "owner_dir": "docs/09_gut_review.md"
+    },
+    "blender": {
+      "kind": "tool",
+      "engine": "Blender MCP",
+      "desc": "Generates/repairs 3D assets for the sim scene (props, target zones), URDF->GLB conversion.",
+      "endpoint": "blender_* tools",
+      "subscribes": [],
+      "publishes": [],
+      "owner_dir": "sim/armsmith_web/assets"
+    }
+  }
+}

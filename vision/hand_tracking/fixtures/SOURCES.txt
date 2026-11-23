@@ -1,0 +1,20 @@
+vision/hand_tracking/fixtures/ — test assets
+=============================================
+
+hand_open.jpg
+  Source:  "Hands with Fingers Outstretched.png", Wikimedia Commons (CC0)
+  URL:     https://commons.wikimedia.org/wiki/File:Hands_with_Fingers_Outstretched.png
+  Fetch:   Special:FilePath?width=1600 → converted BGRA→BGR, resized to 1280×748, JPEG q92
+  Licence: CC0 1.0 (public domain dedication) — see
+           https://creativecommons.org/publicdomain/zero/1.0/
+  Use:     offline fixture for hand_tracker.py (--bench N, or --source on the
+           file) and for verifying MediaPipe Tasks landmark detection without
+           a webcam. Verified detecting: 1 hand, handedness "Right" (0.95).
+
+vision/hand_tracking/models/hand_landmarker.task
+  Source:  MediaPipe Hand Landmarker model (float16, "latest" channel)
+  URL:     https://storage.googleapis.com/mediapipe-models/hand_landmarker/
+           hand_landmarker/float16/latest/hand_landmarker.task
+  Licence: Apache-2.0 (MediaPipe, Google LLC)
+
+No webcam was used to produce any file in this directory.

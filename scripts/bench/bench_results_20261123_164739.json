@@ -1,0 +1,174 @@
+{
+  "date_utc": "2026-11-23T16:47:36+00:00",
+  "hardware": {
+    "hostname": "superlocal",
+    "kernel": "6.18.5-2-cachyos",
+    "python": "3.12.13",
+    "cpu_count": 32,
+    "cpu_model": "AMD RYZEN AI MAX+ 395 w/ Radeon 8060S",
+    "mem_total_gb": 124,
+    "mem_available_gb": 29,
+    "gpu": "Radeon 8060S Graphics (radeonsi, gfx1151, LLVM 21.1.6, DRM 3.64, 6.18.5-2-cachyos)"
+  },
+  "mujoco": "4.0.1",
+  "gl_backends": {
+    "egl": {
+      "backend": "egl",
+      "width": 640,
+      "height": 480,
+      "ok": true,
+      "create_s": 0.231,
+      "frame_shape": [
+        480,
+        640,
+        3
+      ],
+      "dtype": "uint8",
+      "render_backend": "opengl"
+    },
+    "glfw": {
+      "backend": "glfw",
+      "width": 640,
+      "height": 480,
+      "ok": true,
+      "create_s": 0.325,
+      "frame_shape": [
+        480,
+        640,
+        3
+      ],
+      "dtype": "uint8",
+      "render_backend": "opengl"
+    },
+    "osmesa": {
+      "backend": "osmesa",
+      "width": 640,
+      "height": 480,
+      "ok": false,
+      "error": "AttributeError: 'NoneType' object has no attribute 'glGetError'"
+    }
+  },
+  "best_backend": "egl",
+  "steps": [
+    {
+      "name": "humanoid_simple",
+      "model": "/home/fivelidz/projects/GLM_projects/robot_learning/sim/mujoco/bench/humanoid_simple.xml",
+      "nq": 15,
+      "nv": 14,
+      "nu": 8,
+      "nbody": 10,
+      "ngeom": 16,
+      "timestep": 0.004,
+      "steps": 2000,
+      "repeats": 3,
+      "steps_per_s_best": 50970.9,
+      "steps_per_s_median": 49940.9,
+      "ms_per_step_best": 0.0196,
+      "warnings_after": 0
+    },
+    {
+      "name": "two_link",
+      "model": "/home/fivelidz/projects/GLM_projects/robot_learning/sim/mujoco/bench/two_link.xml",
+      "nq": 2,
+      "nv": 2,
+      "nu": 2,
+      "nbody": 3,
+      "ngeom": 4,
+      "timestep": 0.002,
+      "steps": 2000,
+      "repeats": 3,
+      "steps_per_s_best": 192674.3,
+      "steps_per_s_median": 185110.4,
+      "ms_per_step_best": 0.0052,
+      "warnings_after": 0
+    },
+    {
+      "name": "so101_simple",
+      "model": "/home/fivelidz/projects/GLM_projects/robot_learning/sim/mujoco/so101_simple/so101_simple.xml",
+      "nq": 14,
+      "nv": 13,
+      "nu": 7,
+      "nbody": 9,
+      "ngeom": 13,
+      "timestep": 0.002,
+      "steps": 2000,
+      "repeats": 3,
+      "steps_per_s_best": 54703.2,
+      "steps_per_s_median": 53449.3,
+      "ms_per_step_best": 0.0183,
+      "warnings_after": 0
+    },
+    {
+      "name": "so101_new_calib",
+      "model": "/home/fivelidz/projects/GLM_projects/robot_learning/sim/mujoco/so101_official/so101_new_calib.xml",
+      "nq": 6,
+      "nv": 6,
+      "nu": 6,
+      "nbody": 8,
+      "ngeom": 30,
+      "timestep": 0.002,
+      "steps": 2000,
+      "repeats": 3,
+      "steps_per_s_best": 92566.3,
+      "steps_per_s_median": 89199.6,
+      "ms_per_step_best": 0.0108,
+      "warnings_after": 0
+    }
+  ],
+  "render": [
+    {
+      "backend": "egl",
+      "width": 640,
+      "height": 480,
+      "warmup": 10,
+      "frames": 50,
+      "fps": 234.8,
+      "ms_per_frame": 4.26,
+      "frame_shape": [
+        480,
+        640,
+        3
+      ]
+    },
+    {
+      "backend": "egl",
+      "width": 1280,
+      "height": 720,
+      "warmup": 10,
+      "frames": 50,
+      "fps": 162.6,
+      "ms_per_frame": 6.15,
+      "frame_shape": [
+        720,
+        1280,
+        3
+      ]
+    }
+  ],
+  "scaling": [
+    {
+      "workers": 1,
+      "nstep": 800,
+      "wall_s": 0.008,
+      "agg_steps_per_s": 105126.2,
+      "per_env_steps_per_s": 105126.2,
+      "speedup_vs_1": 1.0
+    },
+    {
+      "workers": 8,
+      "nstep": 800,
+      "wall_s": 0.009,
+      "agg_steps_per_s": 688726.4,
+      "per_env_steps_per_s": 86090.8,
+      "speedup_vs_1": 6.55
+    },
+    {
+      "workers": 32,
+      "nstep": 800,
+      "wall_s": 0.021,
+      "agg_steps_per_s": 1244686.9,
+      "per_env_steps_per_s": 38896.5,
+      "speedup_vs_1": 11.84
+    }
+  ]
+}

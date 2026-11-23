@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<!--
+  vision/preview/index.html — zero-build bus preview (plain JS, no CDN).
+
+  Serves over any static server (or file://), connects to the Robot Bus,
+  subscribes to the high-rate vision topics and shows:
+    - the annotated video (vision.frame JPEG, ≤10 fps)
+    - live hand numbers (vision.hands): handedness, pinch/fist, ee_target
+    - tape tracker state (vision.tape): centroid, steer
+    - ArUco markers (vision.marker): id, camera-frame position, yaw
+
+  Usage:
+    python -m http.server 8892 --directory vision   # any static server
+    open http://127.0.0.1:8892/preview/index.html?port=8890
+
+  URL params: ?port=NNNN (bus port; default probes 8890..8899),
+  ?host=… (default = page host), ?ws=ws://… (full URL override).
+
+  Protocol per docs/PROTOCOL.md: JSON envelopes on one WebSocket; high-rate
+  topics are opt-in via {"topic":"bus.sub","data":{"topics":[...]}}.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>robot_learning · vision preview</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font: 14px/1.45 monospace; background: #101418; color: #cfe3ff;
+         margin: 16px; }
+  h1 { font-size: 15px; margin: 0 0 10px; color: #7fc7ff; }
+  #status { font-size: 12px; padding: 2px 8px; border-radius: 4px;
+            background: #233; display: inline-block; }
+  #status.ok { background: #143; color: #7dff9e; }
+  #status.err { background: #411; color: #ff8a8a; }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; }
+  .panel { background: #161d24; border: 1px solid #22303c; border-radius: 8px;
+           padding: 10px 12px; min-width: 240px; }
+  .panel h2 { font-size: 12px; margin: 0 0 6px; color: #8fb7d8;
+              text-transform: uppercase; letter-spacing: .06em; }
+  #video { max-width: 640px; width: 100%; border-radius: 8px;
+           background: #0a0e12; border: 1px solid #22303c; }
+  table { border-collapse: collapse; font-size: 12px; }
+  td, th { padding: 2px 8px; text-align: left; }
+  td.num { color: #9fe; font-variant-numeric: tabular-nums; }
+  .muted { color: #567; }
+  .big { font-size: 20px; color: #ffd57f; }
+</style>
+</head>
+<body>
+<h1>vision preview <span id="status">connecting…</span></h1>
+
+<div class="row">
+  <div class="panel">
+    <h2>annotated stream (vision.frame)</h2>
+    <img id="video" alt="annotated bus frames appear here">
+    <div class="muted" id="fpsline">waiting for frames…</div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <h2>hands (vision.hands)</h2>
+      <table id="hands"><tr><td class="muted">no hands yet</td></tr></table>
+    </div>
+    <div class="panel" style="margin-top:12px">
+      <h2>tape (vision.tape)</h2>
+      <div id="tape" class="muted">no tape messages yet</div>
+      <div>steer <span id="steer" class="big">—</span></div>
+    </div>
+    <div class="panel" style="margin-top:12px">
+      <h2>markers (vision.marker)</h2>
+      <table id="markers"><tr><td class="muted">no markers yet</td></tr></table>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const statusEl = $("status");
+function setStatus(txt, cls) {
+  statusEl.textContent = txt;
+  statusEl.className = cls || "";
+}
+
+// ---- bus URL resolution ------------------------------------------------
+const qs = new URLSearchParams(location.search);
+function candidateUrls() {
+  if (qs.get("ws")) return [qs.get("ws")];
+  const host = qs.get("host") || location.hostname || "127.0.0.1";
+  const ports = qs.get("port") ? [qs.get("port")]
+    : ["8890","8891","8892","8893","8894","8895","8896","8897","8898","8899"];
+  return ports.map((p) => `ws://${host}:${p}/ws`);
+}
+
+// ---- connection ---------------------------------------------------------
+let ws, retries = 0;
+function connect() {
+  const urls = candidateUrls();
+  let i = 0;
+  const tryNext = () => {
+    if (i >= urls.length) {
+      setStatus("bus unreachable — is `python agents/hub.py` running?", "err");
+      retries++;
+      setTimeout(connect, Math.min(5000, 1000 * retries));
+      return;
+    }
+    const url = urls[i++];
+    setStatus(`connecting ${url} …`);
+    let opened = false;
+    let sock;
+    try { sock = new WebSocket(url); } catch { tryNext(); return; }
+    sock.onopen = () => {
+      opened = true;
+      ws = sock;
+      // hello per PROTOCOL.md; roster reply names us (must stay unique)
+      sock.send(JSON.stringify({ topic: "bus.hello",
+        data: { name: "vision-preview", roles: ["viewer"], caps: [] } }));
+      // high-rate topics are opt-in
+      sock.send(JSON.stringify({ topic: "bus.sub",
+        data: { topics: ["vision.frame", "vision.hands", "vision.tape",
+                         "vision.marker"] } }));
+      setStatus("connected " + url, "ok");
+      retries = 0;
+    };
+    sock.onmessage = (ev) => { let m; try { m = JSON.parse(ev.data); }
+                               catch { return; }
+                               if (m && m.topic) route(m); };
+    sock.onclose = () => {
+      if (opened) { setStatus("disconnected — retrying", "err"); retries = 0;
+                    setTimeout(connect, 1000); }
+      else tryNext();
+    };
+  };
+  tryNext();
+}
+
+// ---- topic routing ------------------------------------------------------
+let frameCount = 0, frameT0 = 0, lastFrameAt = 0;
+function route(m) {
+  const d = m.data || {};
+  if (m.topic === "vision.frame" && d.jpeg_b64) {
+    // Only show the newest producers, any of hands/tape/marker is fine.
+    $("video").src = "data:image/jpeg;base64," + d.jpeg_b64;
+    frameCount++;
+    const now = performance.now();
+    if (!frameT0) frameT0 = now;
+    if (now - lastFrameAt > 500) {
+      const fps = frameCount / ((now - frameT0) / 1000);
+      $("fpsline").textContent =
+        `${fps.toFixed(1)} fps · from ${d.from || "?"} · ${d.w}×${d.h}`;
+      lastFrameAt = now;
+    }
+  } else if (m.topic === "vision.hands") {
+    renderHands(d);
+  } else if (m.topic === "vision.tape") {
+    renderTape(d);
+  } else if (m.topic === "vision.marker") {
+    renderMarkers(d);
+  }
+}
+
+function renderHands(d) {
+  const hands = d.hands || [];
+  if (!hands.length) {
+    $("hands").innerHTML = '<tr><td class="muted">no hands in view</td></tr>';
+    return;
+  }
+  let html = "<tr><th>hand</th><th>pinch</th><th>fist</th><th>ee_target (m)</th></tr>";
+  for (const h of hands) {
+    const ee = (h.ee_target || []).map((v) => (+v).toFixed(3)).join(", ");
+    html += `<tr><td>${h.handedness}</td>` +
+            `<td class="num">${(+h.pinch).toFixed(2)}</td>` +
+            `<td class="num">${(+h.fist).toFixed(2)}</td>` +
+            `<td class="num">[${ee}]</td></tr>`;
+  }
+  html += `<tr><td colspan="4" class="muted">tracker ` +
+          `${(+d.fps).toFixed(0)} fps · infer ${(+d.infer_ms).toFixed(1)} ms</td></tr>`;
+  $("hands").innerHTML = html;
+}
+
+function renderTape(d) {
+  const t = (d.targets && d.targets[0]) || null;
+  if (t) {
+    $("tape").innerHTML = `cx ${(+t.cx).toFixed(3)} · cy ${(+t.cy).toFixed(3)}` +
+      ` · area ${(+t.area).toFixed(4)}`;
+    const s = +d.steer;
+    $("steer").textContent = (s >= 0 ? "+" : "") + s.toFixed(2);
+    $("steer").style.color = s > 0.05 ? "#8dffb0" : s < -0.05 ? "#ff9d9d" : "#ffd57f";
+  } else {
+    $("tape").textContent = "no tape in view";
+    $("steer").textContent = "0.00";
+  }
+}
+
+function renderMarkers(d) {
+  const ms = d.markers || [];
+  if (!ms.length) {
+    $("markers").innerHTML = '<tr><td class="muted">no markers in view</td></tr>';
+    return;
+  }
+  let html = "<tr><th>id</th><th>pos_m (camera)</th><th>yaw</th></tr>";
+  for (const m of ms) {
+    html += `<tr><td>${m.id}</td>` +
+      `<td class="num">[${m.pos_m.map((v) => (+v).toFixed(2)).join(", ")}]</td>` +
+      `<td class="num">${(+m.yaw_deg).toFixed(0)}°</td></tr>`;
+  }
+  $("markers").innerHTML = html;
+}
+
+connect();
+</script>
+</body>
+</html>

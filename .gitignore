@@ -1,0 +1,30 @@
+# environments (recreate with scripts/setup_sim_env.sh + scripts/setup_training_env.sh)
+sim/py/.venv/
+training/.venv/
+__pycache__/
+*.pyc
+.ruff_cache/
+.opencode/
+
+# runtime data — the dataset lives on the machine (runs/bus/*.jsonl), not in git
+runs/bus/
+runs/*.port
+runs/*.pid
+runs/bus.log
+runs/_*
+runs/metrics.json
+!runs/.gitkeep
+
+# bulk: models, datasets, smoke-test artifacts
+training/_smoke/
+datasets/
+*.pt
+*.safetensors
+*.ckpt
+*.mp4
+*.bag
+*.mcap
+
+# editors / OS
+.DS_Store
+*.swp

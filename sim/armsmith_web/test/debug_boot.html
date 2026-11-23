@@ -1,0 +1,49 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>boot probe</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "/vendor/three.module.js",
+    "three/": "/vendor/",
+    "@dimforge/rapier3d-compat": "/vendor/rapier_es_compatible.js"
+  }
+}
+</script>
+<script>
+  document.title = "probe:";
+  window.onerror = function (msg, src, line, col) {
+    document.title += " ERR:" + String(msg).slice(0, 60) + "@" + String(src).split("/").pop() + ":" + line;
+  };
+  window.addEventListener("unhandledrejection", function (ev) {
+    document.title += " REJ:" + String((ev.reason && ev.reason.message) || ev.reason).slice(0, 80);
+  });
+  var stages = [
+    ["three", "/vendor/three.module.js"],
+    ["rapier", "/vendor/rapier_es_compatible.js"],
+    ["robot", "/src/robot.js"],
+    ["physics", "/src/physics.js"],
+    ["controller", "/src/arm_controller.js"],
+    ["ui", "/src/ui.js"],
+    ["main", "/src/main.js"],
+  ];
+  var i = 0;
+  function mark(name, tag) {
+    if (document.title.indexOf(name + "-") === -1) document.title += " " + name + "-" + tag;
+  }
+  function next() {
+    if (i >= stages.length) { document.title += " ALL-DONE"; return; }
+    var name = stages[i][0], url = stages[i][1];
+    var s = document.createElement("script");
+    s.type = "module";
+    s.textContent = 'import * as M from "' + url + '"; document.title += " ' + name + '-ok"; window.__next();';
+    s.onerror = function () { mark(name, "LOADFAIL"); window.__next(); };
+    document.head.appendChild(s);
+    setTimeout(function () {
+      mark(name, "STUCK");
+      window.__next();
+    }, 3000);
+  }
+  window.__next = function () { i++; setTimeout(next, 30); };
+  next();
+</script>

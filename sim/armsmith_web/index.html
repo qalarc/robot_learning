@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ARMSMITH web — SO-101 digital twin (three.js + Rapier)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.js",
+    "three/": "./vendor/",
+    "@dimforge/rapier3d-compat": "./vendor/rapier_es_compatible.js"
+  }
+}
+</script>
+<style>
+  :root { --panel: rgba(12,16,22,0.86); --edge:#2a3a4a; --txt:#cfe3f5; --dim:#7d95aa; --ok:#4be07a; --bad:#ff5d5d; --warn:#ffc14d; }
+  html,body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#05080c; color:var(--txt);
+              font: 12px/1.45 ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; }
+  canvas#view { position:absolute; inset:0; display:block; }
+  .panel { position:absolute; background:var(--panel); border:1px solid var(--edge); border-radius:6px; padding:8px 10px; z-index:5; }
+  #hud { top:10px; left:10px; width:250px; max-height:calc(100vh - 90px); overflow-y:auto; }
+  #hud h3 { margin:2px 0 4px; font-size:11px; letter-spacing:0.12em; color:var(--dim); text-transform:uppercase; }
+  #hud label { display:block; margin:2px 0 0; color:var(--dim); }
+  #hud .jrow { display:flex; align-items:center; gap:6px; margin:1px 0; }
+  #hud .jrow .jlab { width:86px; color:var(--dim); }
+  #hud .jrow .jval { width:52px; text-align:right; color:var(--txt); }
+  #hud input[type=range] { flex:1; height:14px; }
+  select, button { background:#16222e; color:var(--txt); border:1px solid var(--edge); border-radius:4px; padding:2px 6px; font:inherit; }
+  button { cursor:pointer; } button:hover { background:#1e3040; }
+  button.on { border-color:var(--ok); color:var(--ok); }
+  #stats { top:10px; right:10px; text-align:right; min-width:230px; }
+  #status { font-size:13px; color:var(--ok); white-space:pre; }
+  #busstat { color:var(--dim); white-space:pre; margin-top:3px; }
+  #counters { margin-top:3px; } #counters b { color:var(--txt); }
+  #stallwrap { margin-top:5px; height:10px; background:#101820; border:1px solid var(--edge); border-radius:3px; position:relative; }
+  #stallbar { position:absolute; inset:0; width:0%; background:var(--ok); border-radius:2px; transition:width 120ms, background 200ms; }
+  #stalltxt { color:var(--dim); margin-top:2px; }
+  #help { bottom:10px; left:10px; color:var(--dim); max-width:430px; }
+  #help b { color:var(--txt); }
+  #pip { position:absolute; right:10px; bottom:10px; width:220px; height:165px; border:1px solid var(--edge); border-radius:6px; overflow:hidden; z-index:4; background:#000; }
+  #pip .tag { position:absolute; top:2px; left:4px; color:var(--warn); text-shadow:0 1px 2px #000; z-index:2; }
+  #errOverlay { position:absolute; inset:0; z-index:100; display:none; background:rgba(60,4,4,0.92); color:#ffd9d9;
+                padding:30px; font-size:13px; white-space:pre-wrap; overflow:auto; }
+  #mocapPanel { display:none; top:10px; left:270px; width:200px; }
+  #recdot { color:var(--dim); } #recdot.on { color:var(--bad); }
+  a { color:#6fb7ff; }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<div id="hud" class="panel">
+  <h3>ARMSMITH web</h3>
+  <label>control mode
+    <select id="modeSel">
+      <option value="ik">ik</option>
+      <option value="joint">joint</option>
+      <option value="script">script</option>
+      <option value="mocap">mocap</option>
+      <option value="off">off</option>
+    </select>
+  </label>
+  <label>scenario
+    <select id="scenSel">
+      <option value="reach">reach</option>
+      <option value="pick_place" selected>pick_place</option>
+      <option value="push_to_zone">push_to_zone</option>
+      <option value="stack">stack</option>
+    </select>
+  </label>
+  <div class="jrow"><button id="homeBtn" title="Z">home</button>
+       <button id="resetBtn" title="X">reset ep</button>
+       <button id="gripBtn" title="G / Space">grip</button></div>
+  <div class="jrow"><button id="recordBtn">record</button>
+       <button id="expEpBtn" disabled>export ep</button>
+       <button id="expAllBtn" disabled>export all</button></div>
+  <h3>joints (deg)</h3>
+  <div id="jSliders"></div>
+  <h3>gripper</h3>
+  <div class="jrow"><span class="jlab">close</span><input type="range" id="gripSlider" min="0" max="1" step="0.01" value="0"><span class="jval" id="gripVal">0.00</span></div>
+  <div class="jrow"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="assistChk" checked> grasp assist (attach)</label>
+       <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="physChk"> rapier dynamic</label></div>
+  <div id="mocapPanel" class="panel">
+    <h3>mocap calib</h3>
+    <div class="jrow"><span class="jlab">scale</span><input type="range" id="mcScale" min="0.2" max="3" step="0.01" value="1"><span class="jval" id="mcScaleV">1.00</span></div>
+    <div class="jrow"><span class="jlab">off x</span><input type="range" id="mcOx" min="-0.5" max="0.5" step="0.005" value="0"><span class="jval" id="mcOxV">0.000</span></div>
+    <div class="jrow"><span class="jlab">off y</span><input type="range" id="mcOy" min="-0.5" max="0.5" step="0.005" value="0"><span class="jval" id="mcOyV">0.000</span></div>
+    <div class="jrow"><span class="jlab">off z</span><input type="range" id="mcOz" min="-0.5" max="0.5" step="0.005" value="0"><span class="jval" id="mcOzV">0.000</span></div>
+    <label id="mcState" style="color:var(--dim)">no hands seen</label>
+  </div>
+</div>
+
+<div id="stats" class="panel">
+  <div id="status">booting…</div>
+  <div id="busstat">bus: connecting…</div>
+  <div id="counters">ep <b id="epCount">0</b> ok <b id="okCount">0</b> fail <b id="failCount">0</b> <span id="recdot">● idle</span></div>
+  <div id="stallwrap"><div id="stallbar"></div></div>
+  <div id="stalltxt">stall: —</div>
+  <div style="margin-top:5px">
+    cam <button data-cam="free" class="camBtn on">free</button>
+        <button data-cam="wrist" class="camBtn">wrist</button>
+        <button data-cam="env" class="camBtn">env</button>
+  </div>
+</div>
+
+<div id="pip"><span class="tag">wrist cam</span></div>
+
+<div id="help" class="panel">
+  <b>mouse</b> drag LMB: IK target on work-plane · wheel: depth (shift = fine) · drag RMB: orbit · wheel+RMB: zoom<br>
+  <b>joints</b> T/G Y/H U/J I/K O/L P/;  · <b>gripper</b> G or Space toggle, , . open/close · N/B wrist roll<br>
+  <b>fly target</b> WASD + Q/E · <b>depth</b> [ ] · <b>Tab</b> ik/joint · <b>Z</b> home · <b>X</b> reset · M mouse-follow
+</div>
+
+<div id="errOverlay"><h2>runtime error</h2><div id="errText"></div></div>
+
+<script>
+  // Pre-module error net (classic script, runs before any deferred module): catches
+  // module-load/evaluation failures that would otherwise die silently — essential for
+  // headless testing. main.js re-uses the same helpers.
+  window.__armsmithBoot = { t0: Date.now(), module: false, boot: false, step: 0, errors: [] };
+  window.__showRuntimeError = function (where, detail) {
+    try {
+      window.__armsmithBoot.errors.push(String(detail));
+      var t = document.getElementById("errText");
+      if (t) t.textContent += "\n[" + where + "] " + detail;
+      var o = document.getElementById("errOverlay");
+      if (o) o.style.display = "block";
+    } catch (e) { /* nothing else we can do */ }
+  };
+  window.onerror = function (msg, src, line, col) {
+    window.__showRuntimeError("error", msg + " @ " + src + ":" + line + ":" + col);
+  };
+  window.addEventListener("unhandledrejection", function (ev) {
+    var r = ev.reason;
+    window.__showRuntimeError("promise", (r && (r.stack || r.message)) || String(r));
+  });
+  window.addEventListener("error", function (ev) {
+    if (ev.message) window.__showRuntimeError("event", ev.message);
+    else if (ev.target && (ev.target.src || ev.target.href))
+      window.__showRuntimeError("resource", "failed to load " + (ev.target.src || ev.target.href));
+  }, true);
+  // heartbeat so virtual-time harnesses always have pending tasks, even while the
+  // heavy synchronous Rapier WASM init blocks the renderer; also mirrors boot state
+  // into the title for headless diagnostics.
+  setInterval(function () {
+    window.__armsmithBoot.tick = (window.__armsmithBoot.tick || 0) + 1;
+    document.title = "ARMSMITH boot:" + (window.__armsmithBoot.module ? "module" : "nomod") +
+      ":" + (window.__armsmithBoot.boot ? "booted" : "init") + " tick=" + window.__armsmithBoot.tick;
+  }, 500);
+</script>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

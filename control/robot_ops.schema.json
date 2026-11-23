@@ -1,0 +1,66 @@
+{
+  "domain": "robot-ops",
+  "version": 1,
+  "criteria_version": "2026-11-24.1",
+  "_law": "CRITERIA ARE FROZEN. The GUT protocol requires byte-identical question shapes across every row of the domain. Changing any label, description or order after the first dataset row invalidates the whole dataset. If you need a new question, create a new domain version and retrain from zero.",
+  "questions": {
+    "progress": {
+      "type": "choice",
+      "instructions": "Is the robot making progress on its current task?",
+      "criteria": {
+        "advancing": "distance or error to the current goal is shrinking steadily",
+        "stalled": "no meaningful progress for many consecutive steps",
+        "regressing": "the robot is moving away from the goal or undoing progress",
+        "done": "the task goal has been achieved",
+        "unsafe": "collision, self-collision, or motion outside the workspace bounds"
+      }
+    },
+    "failure_mode": {
+      "type": "choice",
+      "instructions": "If the robot is stalled or failing, what is the most likely cause?",
+      "criteria": {
+        "grip_slip": "a grasped object is sliding or has been lost from the gripper",
+        "unreachable_or_ik_residual": "the target is out of reach, or IK leaves a large residual",
+        "collision": "motion is blocked by self-collision or environment contact",
+        "bad_perception": "detection or tracking of the target is wrong or lost",
+        "controller_error": "commands are being sent but not followed (mode, wiring, or protocol fault)",
+        "none": "no failure is apparent"
+      }
+    },
+    "recoverable": {
+      "type": "noul",
+      "instructions": "Can this situation be recovered without human intervention?",
+      "criteria": null
+    },
+    "escalate": {
+      "type": "noul",
+      "instructions": "Should the System-2 reasoner (local GLM) be woken to plan a recovery now?",
+      "criteria": null
+    }
+  },
+  "state_template": "scenario={scenario} stage={stage} step={step} t={t:.1f} stall_steps={stall_steps} progress_delta_mm={progress_delta_mm:.1f} ee_pos=[{ee0:.2f},{ee1:.2f},{ee2:.2f}] target=[{tgt0:.2f},{tgt1:.2f},{tgt2:.2f}] dist_to_goal_mm={dist_mm:.0f} gripper={gripper:.2f} contact={contact} grasp_state={grasp_state} prior_recoveries={prior_recoveries} ep_success_rate_20={succ_rate:.2f} vision={vision}",
+  "skill_vocabulary": [
+    "backoff",
+    "regrasp",
+    "move_ee",
+    "set_gripper",
+    "approach_from",
+    "wiggle",
+    "switch_camera",
+    "replan_scenario",
+    "request_teleop",
+    "abort"
+  ],
+  "workspace": {
+    "x": [0.05, 0.3],
+    "y": [-0.18, 0.18],
+    "z": [0.02, 0.25]
+  },
+  "s2": {
+    "model_default": "glm-4.7-flash-abl:alexei-v3",
+    "system_prompt": "You are the System-2 stall reasoner for a 6-DOF desktop robot arm (SO-101 class, parallel gripper). A fast controller has reported that the robot is stuck. Diagnose and return ONLY a JSON recovery plan. You never output joint angles; you choose symbolic skills with hard bounds. Be concrete and brief.",
+    "max_plan_steps": 4,
+    "num_predict": 450,
+    "output_contract": "minified JSON on one line; each why is at most 10 words"
+  }
+}

@@ -1,0 +1,88 @@
+<mujoco model="so101_simple">
+  <!-- Simplified SO-101-like desktop arm written by hand for LOCAL_MUJOCO_BENCH
+       (2026-11-24, no meshes — capsule/box geoms only).
+       Kinematics: base yaw (z) -> shoulder pitch (y) -> elbow pitch (y) ->
+       wrist pitch (y) -> wrist roll (z) -> gripper with TWO parallel prismatic fingers.
+       Scale: ~35 cm reach, STS3215-servo-like torque scale.
+       Author: builder agent, robot_learning repo. CC0-style placeholder geometry. -->
+  <option timestep="0.002" gravity="0 0 -9.81"/>
+  <visual>
+    <global offwidth="1280" offheight="720"/>
+  </visual>
+  <default>
+    <joint limited="true" damping="0.5" armature="0.01" frictionloss="0.1"/>
+    <geom density="500" friction="0.8 0.02 0.001" condim="3"/>
+    <position ctrllimited="true" forcerange="-25 25"/>
+    <default class="link"><geom type="capsule" density="400"/></default>
+    <default class="finger"><geom type="capsule" size="0.006" density="300"/></default>
+  </default>
+  <worldbody>
+    <geom name="floor" type="plane" size="2 2 0.1" rgba="0.25 0.3 0.35 1"/>
+    <light name="top" pos="0.3 0.3 1.0" dir="0 0 -1" diffuse="0.7 0.7 0.7"/>
+    <light name="fill" pos="-0.4 0.2 0.8" dir="0 0 -1" diffuse="0.3 0.3 0.3"/>
+
+    <!-- static pedestal -->
+    <geom name="pedestal" type="cylinder" pos="0 0 0.02" size="0.07 0.02" rgba="0.3 0.3 0.3 1"/>
+
+    <!-- J1: base yaw -->
+    <body name="base_yaw" pos="0 0 0.04">
+      <joint name="j1_base_yaw" type="hinge" axis="0 0 1" range="-3.05 3.05"/>
+      <geom class="link" name="g_base" fromto="0 0 0 0 0 0.05" size="0.035" rgba="0.85 0.45 0.1 1"/>
+      <!-- J2: shoulder pitch (arm tilts forward/back) -->
+      <body name="shoulder" pos="0 0 0.05">
+        <joint name="j2_shoulder_pitch" type="hinge" axis="0 1 0" range="-1.90 1.90"/>
+        <geom class="link" name="g_upper_arm" fromto="0 0 0 0 0 0.13" size="0.022" rgba="0.85 0.45 0.1 1"/>
+        <!-- J3: elbow pitch -->
+        <body name="elbow" pos="0 0 0.13">
+          <joint name="j3_elbow_pitch" type="hinge" axis="0 1 0" range="-2.20 0.60"/>
+          <geom class="link" name="g_forearm" fromto="0 0 0 0 0 0.12" size="0.018" rgba="0.85 0.45 0.1 1"/>
+          <!-- J4: wrist pitch -->
+          <body name="wrist_pitch" pos="0 0 0.12">
+            <joint name="j4_wrist_pitch" type="hinge" axis="0 1 0" range="-1.60 1.60"/>
+            <geom class="link" name="g_wrist" fromto="0 0 0 0 0 0.05" size="0.014" rgba="0.85 0.45 0.1 1"/>
+            <!-- J5: wrist roll -->
+            <body name="wrist_roll" pos="0 0 0.05">
+              <joint name="j5_wrist_roll" type="hinge" axis="0 0 1" range="-3.14 3.14"/>
+              <geom class="link" name="g_palm_mount" fromto="0 0 0 0 0 0.02" size="0.012" rgba="0.85 0.45 0.1 1"/>
+              <!-- gripper palm -->
+              <geom name="g_palm" type="box" pos="0 0 0.025" size="0.025 0.008 0.008" rgba="0.2 0.2 0.2 1"/>
+              <!-- finger left: prismatic along y -->
+              <body name="finger_left" pos="-0.012 0 0.033">
+                <joint name="j6_finger_left" type="slide" axis="0 1 0" range="-0.018 0.002"/>
+                <geom class="finger" name="g_finger_left" fromto="0 0 -0.005 0 0 0.045"/>
+                <geom name="g_fingertip_left" type="box" pos="0 0 0.048" size="0.008 0.004 0.006" rgba="0.2 0.2 0.2 1"/>
+              </body>
+              <!-- finger right: prismatic along y (mirrored) -->
+              <body name="finger_right" pos="0.012 0 0.033">
+                <joint name="j7_finger_right" type="slide" axis="0 1 0" range="-0.002 0.018"/>
+                <geom class="finger" name="g_finger_right" fromto="0 0 -0.005 0 0 0.045"/>
+                <geom name="g_fingertip_right" type="box" pos="0 0 0.048" size="0.008 0.004 0.006" rgba="0.2 0.2 0.2 1"/>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+
+    <!-- cube to push around -->
+    <body name="cube" pos="0.22 0 0.02">
+      <freejoint name="cube_free"/>
+      <geom name="g_cube" type="box" size="0.02 0.02 0.02" mass="0.05" friction="0.6 0.01 0.002" rgba="0.15 0.55 0.85 1"/>
+    </body>
+  </worldbody>
+  <actuator>
+    <position name="a_j1_base_yaw"        joint="j1_base_yaw"        kp="30" ctrlrange="-3.05 3.05"/>
+    <position name="a_j2_shoulder_pitch"  joint="j2_shoulder_pitch"  kp="45" ctrlrange="-1.90 1.90"/>
+    <position name="a_j3_elbow_pitch"     joint="j3_elbow_pitch"     kp="35" ctrlrange="-2.20 0.60"/>
+    <position name="a_j4_wrist_pitch"     joint="j4_wrist_pitch"     kp="20" ctrlrange="-1.60 1.60"/>
+    <position name="a_j5_wrist_roll"      joint="j5_wrist_roll"      kp="15" ctrlrange="-3.14 3.14"/>
+    <position name="a_j6_finger_left"     joint="j6_finger_left"     kp="8"  ctrlrange="-0.018 0.002" forcerange="-5 5"/>
+    <position name="a_j7_finger_right"    joint="j7_finger_right"    kp="8"  ctrlrange="-0.002 0.018" forcerange="-5 5"/>
+  </actuator>
+  <keyframe>
+    <!-- reach forward, fingers open. qpos = 5 hinge angles, 2 finger slides, cube freejoint (pos+quat) -->
+    <key name="reach"
+         qpos="0 0 0 0 0 -0.018 0.018 0.22 0 0.02 1 0 0 0"
+         ctrl="0 0 0 0 0 -0.018 0.018"/>
+  </keyframe>
+</mujoco>

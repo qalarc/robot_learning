@@ -1,0 +1,82 @@
+<mujoco model="simple_humanoid">
+  <!-- Bench model: simplified humanoid written by hand for LOCAL_MUJOCO_BENCH (no meshes).
+       9 bodies, 8 hinge joints + free root, position actuators, feet-plane contacts.
+       Torso root height 0.70 puts foot soles ~ just above floor at qpos=0. -->
+  <option timestep="0.004" gravity="0 0 -9.81"/>
+  <visual>
+    <global offwidth="1280" offheight="720"/>
+  </visual>
+  <default>
+    <joint damping="1.0" armature="0.01" limited="true"/>
+    <geom density="700" friction="0.9 0.02 0.001" condim="3"/>
+    <position ctrllimited="true" forcerange="-60 60"/>
+    <default class="arm">
+      <joint axis="0 1 0" damping="0.5"/>
+      <geom type="capsule" density="600" size="0.04"/>
+    </default>
+    <default class="leg">
+      <joint axis="0 1 0"/>
+      <geom type="capsule" density="800" size="0.045"/>
+    </default>
+  </default>
+  <worldbody>
+    <geom name="floor" type="plane" size="5 5 0.1" rgba="0.25 0.3 0.35 1"/>
+    <light name="top" pos="0 0 3" dir="0 0 -1" diffuse="0.7 0.7 0.7"/>
+    <body name="torso" pos="0 0 0.70">
+      <freejoint name="root"/>
+      <geom name="torso" type="capsule" fromto="0 0 -0.12 0 0 0.12" size="0.065"/>
+      <geom name="pelvis" type="capsule" fromto="0 0 -0.26 0 0 -0.12" size="0.07"/>
+      <geom name="head" type="sphere" pos="0 0 0.24" size="0.07"/>
+      <body name="upper_arm_R" pos="0 -0.11 0.10">
+        <joint name="shoulder_R" range="-1.57 1.57"/>
+        <geom class="arm" fromto="0 0 0 0 0 -0.16"/>
+        <body name="lower_arm_R" pos="0 0 -0.16">
+          <joint name="elbow_R" range="-2.0 0.0"/>
+          <geom class="arm" fromto="0 0 0 0 0 -0.16" size="0.033"/>
+          <geom class="arm" name="hand_R" type="sphere" pos="0 0 -0.18" size="0.035"/>
+        </body>
+      </body>
+      <body name="upper_arm_L" pos="0 0.11 0.10">
+        <joint name="shoulder_L" range="-1.57 1.57"/>
+        <geom class="arm" fromto="0 0 0 0 0 -0.16"/>
+        <body name="lower_arm_L" pos="0 0 -0.16">
+          <joint name="elbow_L" range="-2.0 0.0"/>
+          <geom class="arm" fromto="0 0 0 0 0 -0.16" size="0.033"/>
+          <geom class="arm" name="hand_L" type="sphere" pos="0 0 -0.18" size="0.035"/>
+        </body>
+      </body>
+      <body name="thigh_R" pos="0 -0.075 -0.26">
+        <joint name="hip_R" range="-1.0 1.0"/>
+        <geom class="leg" fromto="0 0 0 0 0 -0.20"/>
+        <body name="shin_R" pos="0 0 -0.20">
+          <joint name="knee_R" range="-1.6 0.05"/>
+          <geom class="leg" fromto="0 0 0 0 0 -0.20" size="0.04"/>
+          <geom class="leg" name="foot_R" type="box" pos="0 -0.02 -0.215" size="0.06 0.02 0.015"/>
+        </body>
+      </body>
+      <body name="thigh_L" pos="0 0.075 -0.26">
+        <joint name="hip_L" range="-1.0 1.0"/>
+        <geom class="leg" fromto="0 0 0 0 0 -0.20"/>
+        <body name="shin_L" pos="0 0 -0.20">
+          <joint name="knee_L" range="-1.6 0.05"/>
+          <geom class="leg" fromto="0 0 0 0 0 -0.20" size="0.04"/>
+          <geom class="leg" name="foot_L" type="box" pos="0 0.02 -0.215" size="0.06 0.02 0.015"/>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <position name="shoulder_R" joint="shoulder_R" kp="30" ctrlrange="-1.57 1.57"/>
+    <position name="elbow_R" joint="elbow_R" kp="30" ctrlrange="-2.0 0.0"/>
+    <position name="shoulder_L" joint="shoulder_L" kp="30" ctrlrange="-1.57 1.57"/>
+    <position name="elbow_L" joint="elbow_L" kp="30" ctrlrange="-2.0 0.0"/>
+    <position name="hip_R" joint="hip_R" kp="60" ctrlrange="-1.0 1.0"/>
+    <position name="knee_R" joint="knee_R" kp="60" ctrlrange="-1.6 0.05"/>
+    <position name="hip_L" joint="hip_L" kp="60" ctrlrange="-1.0 1.0"/>
+    <position name="knee_L" joint="knee_L" kp="60" ctrlrange="-1.6 0.05"/>
+  </actuator>
+  <keyframe>
+    <key name="stand" qpos="0 0 0.70 1 0 0 0  0 0 0 0 0 0 0 0"
+         ctrl="0 0 0 0 0 0 0 0"/>
+  </keyframe>
+</mujoco>
