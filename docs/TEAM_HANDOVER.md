@@ -8,6 +8,12 @@ Status date: **24 Nov 2026**. This is the onboarding document — read it top to
 > ([event page](https://hackathonsaustralia.com.au/events/alloy-openai-physical-ai-hackathon)).
 > Teams ≤ 6. Accepted builders get the starter kit + Discord on 1 Dec.
 
+## 0b. The roster (2026-11-24)
+
+Mia (lead), Alexei (sim/scenarios), Khartik (training/metrics), Mannus (vision/teleop),
+John (systems/infra), Pugalproceed (data/integration/MCAP). Everyone applies **by Sun 29
+Nov** — link in README. Day roles: deck slide 11 (https://qalarc.com/projects/robots/deck/).
+
 ## 0. The pitch (what we are building)
 
 > "Our robot fails, explains itself, fixes itself, and needs the big brain less each

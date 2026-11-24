@@ -45,6 +45,13 @@ scripts/gpu-python.sh your_torch_script.py     # local AMD-iGPU torch (docs/11 �
 
 **Training playbook — what to train, where, why: `docs/11_training_playbook.md`.**
 
+## The team
+
+**Humans:** Mia (lead · brief & story) · Alexei (sim & scenarios) · Khartik (training & metrics) ·
+Mannus (vision & teleop) · John (systems & infra) · Pugalproceed (data & integration).
+Full day-roles: [docs/TEAM_HANDOVER.md](docs/TEAM_HANDOVER.md) and deck slide 11
+(https://qalarc.com/projects/robots/deck/). Everyone applies individually **by Sun 29 Nov**.
+
 ## Repo map
 
 | path | what |
