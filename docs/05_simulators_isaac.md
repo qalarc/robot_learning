@@ -236,3 +236,25 @@ budget tier; enclosure ≈ A$200–400. Decision guidance with 11 days to the ev
 new-hardware + rolling-release driver risk vs. zero benefit to the learning loop —
 cloud RTX (doc above) or venue hardware covers the "we also ran Isaac" checkbox with
 no setup risk. Recommended: spend nothing until the venue tells us what they provide.
+
+## Addendum 2 — the actual teardown (2026-11-24, wheels pulled and unpacked)
+
+We pulled the real artefacts from pypi.nvidia.com and unpacked them:
+
+- `isaacsim-6.2.0.0-cp312-none-manylinux_2_35_x86_64.whl` (metapackage, 730 KB):
+  `Requires-Python ==3.12.*` exactly; depends on `isaacsim-kernel==6.2.0.0` plus a
+  fan-out of `isaacsim-*` extras.
+- `isaacsim_kernel-6.2.0.0-...whl` (70 MB bootstrap): contains the Kit/Carbonite
+  framework Python bindings — 88 closed `.so` plugins (`carb.*`, `omni.*`), each with
+  `libcarb.so => not found` unless NVIDIA's closed Carbonite core is present.
+- **The RTX renderer and PhysX-GPU binaries are not even in the wheels**: they stream
+  from NVIDIA's extension registry on first launch via the `extscache-*` extras
+  (multi-GB). There is nothing on-disk to port.
+
+**Conclusion, now evidenced:** the parts that require NVIDIA are (1) the closed
+`carb`/`omni` plugin core we unpacked and (2) renderer/physics binaries that only ever
+exist after an authenticated first-launch fetch. A ROCm port would require
+recompiling binaries NVIDIA never ships as wheels — i.e. impossible from the outside.
+Practical Isaac on this machine = external/cloud RTX only (see Addendum 1). The
+MuJoCo/Three.js stack in this repo is the complete functional replacement for our
+purposes; nothing further to "try".
