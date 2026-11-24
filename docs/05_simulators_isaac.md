@@ -201,3 +201,38 @@ Isaac Sim requirements ([NVIDIA docs](https://docs.isaacsim.omniverse.nvidia.com
 Marked **[unverified]** (not fetched from primary source today, treat as leads): PyBullet zlib licence; robosuite MIT licence; Webots/Gazebo exact licence texts; Gazebo Mesa rendering behaviour; mjswan capabilities; Pyodide+PyTorch feasibility; Lambda/CoreWeave/Colab pricing & limits; ZLUDA-Isaac incompatibility (no official statement exists either way — absence of support is what's verified).
 
 *Local facts (our machine's specs, Arch/CachyOS, free disk) are from the task brief, measured today by the team.*
+
+---
+
+## Addendum (2026-11-24, measured on this machine): eGPU / P100 / "port Isaac to ROCm?"
+
+**The box:** GMKtec EVO-X2 · Ryzen AI Max+ 395 · **two USB4 40 Gbps host routers with
+PCIe tunneling** (`bolt` shows an ASMedia ASM246x USB4 PCIe device already paired and
+authorized — same tunneling an eGPU dock uses). Linux side (bolt + USB4) is proven here.
+
+**"Rip apart Isaac Sim / run it on ROCm?" — not possible, by construction.** Isaac's
+core is closed NVIDIA binaries: the RTX renderer (OptiX-class ray tracing), the PhysX 5
+GPU solver, CUDA/cupti interlocks. HIPify/ZLUDA translate code *you compile*; they
+cannot recompile NVIDIA's closed kernels, and nothing translates OptiX/RTX graphics
+interop to RDNA. The version of "ripping it apart" that works is what we already did:
+keep the open RL framework layer (Isaac Lab-class tooling = MuJoCo Playground) and
+replace physics with MuJoCo (CPU) — that runs here today.
+
+**eGPU verdict: doable.** USB4 40 Gbps ≈ PCIe 3.0 x4 effective (~4 GB/s) — a 10–20%
+compute-bound penalty, irrelevant for our workload sizes. Cold-boot attach +
+`bolt authorize` on Arch is routine; NVIDIA driver via pacman (user action).
+If the EVO-X2 variant has an OCuLink port, that's an even better link (x4 Gen4 direct).
+
+**Would a P100 be OK? No — for two separate reasons.**
+1. **Isaac Sim requires RTX-class GPUs** (RT cores; Turing+; driver 595-era). P100
+   (Pascal, 2016, no RT cores) fails Isaac's minimum spec regardless of drivers.
+2. For *training*, a P100 adds nothing: 10.6 TFLOPS fp32 ≈ our iGPU's measured 9.02 —
+   and Pascal is being dropped from current CUDA/torch wheel sets, so it drags an old
+   software stack behind it. Its only virtue is 16 GB HBM2.
+
+**If you want Isaac locally (optional, not needed for the event):** an RTX card with
+≥16 GB in a USB4 eGPU enclosure — used RTX 4080/4090, or 4060 Ti 16 GB / 5060 Ti 16 GB
+budget tier; enclosure ≈ A$200–400. Decision guidance with 11 days to the event:
+new-hardware + rolling-release driver risk vs. zero benefit to the learning loop —
+cloud RTX (doc above) or venue hardware covers the "we also ran Isaac" checkbox with
+no setup risk. Recommended: spend nothing until the venue tells us what they provide.
