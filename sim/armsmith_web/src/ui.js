@@ -3,6 +3,7 @@
 // RMB drag orbits — cameras.js). All DOM ids referenced by index.html.
 
 import { r2t, t2r, DEG, RAD, clamp } from "./frames.js";
+import { ARM_CONFIG, REAL_SO101, WORKSPACE_BOX } from "./arm_config.js";
 
 const JOINT_KEYS = [["t", "g"], ["y", "h"], ["u", "j"], ["i", "k"], ["o", "l"], ["p", ";"]];
 
@@ -13,9 +14,76 @@ export class UI {
     this.keys = new Set();
     this.drag = null;          // {kind:'orbit'|'ik', x, y}
     this.buildSliders();
+    this.buildSpec();
     this.wireDom();
     this.wireKeyboard();
     this.wireMouse();
+  }
+
+  // ---- SPEC panel: the REAL STS3215/SO-101 facts driving the sim ----------------
+  // Values come from ARM_CONFIG / REAL_SO101 / WORKSPACE_BOX (parsed from
+  // so101_new_calib.xml, verified 2026-11-24) — no hard-coded spec strings here.
+  buildSpec() {
+    const host = document.getElementById("hud");
+    if (!host) return;
+    const wrap = document.createElement("div");
+    wrap.id = "specPanel";
+    const head = document.createElement("h3");
+    head.style.cssText = "cursor:pointer;user-select:none";
+    const title = document.createElement("span");
+    title.textContent = "spec — real SO-101";
+    const caret = document.createElement("span");
+    caret.id = "specCaret";
+    caret.textContent = " ▸";
+    head.append(title, caret);
+    head.addEventListener("click", () => this.setSpecOpen(wrap.style.display === "none"));
+    const body = document.createElement("div");
+    body.id = "specBody";
+    body.style.display = "none";
+    wrap.append(head, body);
+    host.appendChild(wrap);
+
+    const row = (k, v) => {
+      const d = document.createElement("div");
+      d.style.cssText = "margin:1px 0;color:#7d95aa";
+      const b = document.createElement("b");
+      b.style.color = "#cfe3f5"; b.textContent = v;
+      d.append(`${k}: `, b);
+      return d;
+    };
+    const R = REAL_SO101;
+    body.appendChild(row("servo", `${R.servoModel} · ${R.ticksPerRev} ticks/rev (${R.degPerTick.toFixed(3)}°/tick) · ${R.servoNoLoadSpeedDegPerSec}°/s`));
+    body.appendChild(row("torque cap", `${R.actuatorForceRangeNm} N·m (MJCF actuator forcerange)`));
+    body.appendChild(row("PD gains", `kp ${R.actuatorKp} · kv ${R.actuatorKv} (MJCF position actuator)`));
+    body.appendChild(row("joint friction", `damping ${R.jointDamping} · armature ${R.jointArmature} · frictionloss ${R.jointFrictionLoss}`));
+    for (const j of ARM_CONFIG.joints) {
+      body.appendChild(row(j.name,
+        `${(j.min * RAD).toFixed(1)}°…${(j.max * RAD).toFixed(1)}° · ${(j.massKg * 1000).toFixed(0)} g`));
+    }
+    body.appendChild(row("total mass", `${(R.totalMassKg * 1000).toFixed(0)} g (all links, MJCF)`));
+    body.appendChild(row("jaw travel", `${(REAL_SO101.jawRangeRad[0] * RAD).toFixed(0)}° closed … ${(REAL_SO101.jawRangeRad[1] * RAD).toFixed(0)}° open`));
+    body.appendChild(row("workspace", `x ${WORKSPACE_BOX.x[0]}–${WORKSPACE_BOX.x[1]} · y ±${Math.abs(WORKSPACE_BOX.y[1])} · z ${WORKSPACE_BOX.z[0]}–${WORKSPACE_BOX.z[1]} m`));
+    const meshRow = row("meshes", "loading…");
+    meshRow.id = "specMeshRow";
+    body.appendChild(meshRow);
+    body.appendChild(row("mesh/licence", R.meshSource));
+    this.setSpecOpen(false);
+  }
+
+  setSpecOpen(open) {
+    const body = document.getElementById("specBody");
+    const caret = document.getElementById("specCaret");
+    if (!body) return;
+    body.style.display = open ? "block" : "none";
+    if (caret) caret.textContent = open ? " ▾" : " ▸";
+  }
+
+  // meshes=stl|capsule — updated once STL fetches settle (main.js)
+  setMeshPath(path) {
+    const el = document.getElementById("specMeshRow");
+    if (!el) return;
+    const b = el.querySelector("b");
+    if (b) b.textContent = path;
   }
 
   buildSliders() {

@@ -5,15 +5,18 @@
 > ⏰ **Applications close Sun 29 Nov 23:59 AEDT** — every teammate applies individually:
 > [event page → register](https://hackathonsaustralia.com.au/events/alloy-openai-physical-ai-hackathon)
 
+> 👥 **New to the team? Read [`docs/TEAM_HANDOVER.md`](docs/TEAM_HANDOVER.md) first** —
+> every element, every agent skill, setup, demo recipes, training status, 11-day plan.
+
 We build **robots that learn from their own runs and fail less**. Our entry is a live
 failure-recovery learning loop:
 
 ```
  run ──▶ capture ──▶ find the failure ─────────▶ fix ──────────────▶ run again
- sim/real  bus blackboard   Laya S1 (~1.4 s)     GLM 4.7 S2 (15-30 s)  measured
-          runs/bus/*.jsonl  typed + calibrated   bounded symbolic     failure-rate
-                            identification       plan via safety      delta = the
-                                                 shield               demo ("nines")
+ sim/real  bus blackboard   Laya S1 (~1.4 s)     alexei S2 (acts in ~2 s   measured
+           runs/bus/*.jsonl  typed + calibrated   via streaming; plan in    failure-rate
+                             identification       ~5 s) via safety shield  delta = the
+                                                                                  demo ("nines")
                             ▲                                         │
                             └──── every recovery is labelled: S2 teaches S1 ──┘
 ```
@@ -33,33 +36,41 @@ sim/py/.venv/bin/python control/stall_controller.py               # THE LOOP (dr
 Headless demo of the full learning loop in three terminals, no browser. Then:
 
 ```bash
-(cd sim/armsmith_web && python3 -m http.server 8891)   # the real sim (Three.js + Rapier)
-open http://127.0.0.1:8891/
-sim/py/.venv/bin/python agents/cli.py demo              # drive it from a shell
+bash sim/dashboard/serve.sh                    # hub + sim :8891 + dashboard :8892 (localhost)
+training/.venv/bin/python training/train_rl.py # PPO trains in MuJoCo — watch live in the browser
+sim/py/.venv/bin/python agents/cli.py demo     # drive the sim from a shell
 sim/py/.venv/bin/python vision/hand_tracking/hand_tracker.py   # hand → EE teleop
+scripts/gpu-python.sh your_torch_script.py     # local AMD-iGPU torch (docs/11 §2)
 ```
+
+**Training playbook — what to train, where, why: `docs/11_training_playbook.md`.**
 
 ## Repo map
 
 | path | what |
 |---|---|
+| **`GUIDE.md`** | **the full guide — one paragraph on every element in the system** |
+| **`docs/TEAM_HANDOVER.md`** | 15-minute team onboarding: setup, demo recipes, training status, 11-day plan |
+| **`wiki/`** | the wiki — every point expanded, one page per topic |
 | **`AGENTS.md`** | brief for Codex/coding agents (they read it automatically) |
 | **`docs/PROTOCOL.md`** | the Robot Bus — how every agent/sim/sensor talks |
 | `docs/00_hackathon_strategy.md` | strategy, day plan, pitch, risks |
 | `docs/01_agent_team.md` | the agent roster + how they hand off work |
-| `docs/03_our_assets_map.md` | every one of OUR projects this builds on (linked + explained) |
+| `docs/03_our_assets_map.md` + `03b_unity_armsmith.md` | every project this builds on + the **Unity ARMSMITH reference & relevance assessment** ([fivelidz/armsmith-robot-arms](https://github.com/fivelidz/armsmith-robot-arms)) |
 | `docs/04_lerobot_mujoco.md` | LeRobot 0.7 + MuJoCo 4 field guide (verified) |
 | `docs/05_simulators_isaac.md` | simulator matrix; Isaac Sim on AMD: no (and what to do instead) |
 | `docs/06_vla_landscape.md` | VLAs, learning-loop methods, the event intel |
 | `docs/07_vision_mocap_landscape.md` + `07b_vision_tools.md` | mocap/CV options + our tools |
-| `docs/08_stall_learning_loop.md` | the S1/S2 architecture in detail (with measured latencies) |
+| `docs/08_stall_learning_loop.md` | the S1/S2 architecture in detail (measured latencies, streaming ttfa) |
 | `docs/09_gut_review.md` | review/reflection of our GUT project → this design |
 | `docs/10_reading_list.md` | what to read before the day |
-| `agents/` | hub, bus client, CLI, fake sim, tests, registry |
+| `docs/11_training_playbook.md` | what to train, where (CPU / iGPU / free T4), why |
+| `agents/` | hub, bus client, CLI, fake sim, replay, tests, registry |
 | `control/` | stall controller, Laya S1 client, GLM S2 reasoner + shield, frozen schema |
-| `sim/armsmith_web/` | Three.js port of our Unity ARMSMITH SO-101 sim |
-| `sim/py/`, `sim/mujoco/` | light venv, MuJoCo models + benchmarks |
-| `training/` | LeRobot venv, bus→LeRobotDataset converter |
+| `sim/armsmith_web/` | Three.js port of our Unity ARMSMITH SO-101 sim (+ `?view=puppet`) |
+| `sim/dashboard/` | mission control: nines, curves, roster, stall-loop counters (:8892) |
+| `sim/py/`, `sim/mujoco/` | light venv, MuJoCo envs + models + benchmarks |
+| `training/` | LeRobot venv, RL trainer, bus→LeRobotDataset converter |
 | `vision/` | MediaPipe hand teleop, HSV tracker, ArUco pose |
 | `reviews/` | deep reviews (RGBmocap etc.) |
 | `data/` | `robot-ops.jsonl` — the System-2-teaches-System-1 training set |

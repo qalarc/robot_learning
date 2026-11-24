@@ -1,0 +1,32 @@
+{
+  "host": "superlocal",
+  "torch": "2.5.1+rocm6.2",
+  "hip": "6.2.41133-dd7f95766",
+  "python": "3.11.14",
+  "cpu": {
+    "device": "cpu",
+    "torch_threads": 16,
+    "matmul4096_fp32_ms": 209.45,
+    "matmul4096_fp32_tflops": 0.66,
+    "mlp_4096x128_train_step_ms": 7.489,
+    "cnn_64x3x128x128_train_step_ms": 45.301,
+    "transformer_256x100x256_train_step_ms": 425.981
+  },
+  "gpu": {
+    "device": "cuda",
+    "torch_threads": 16,
+    "name": "Radeon 8060S Graphics",
+    "matmul4096_fp32_ms": 15.23,
+    "matmul4096_fp32_tflops": 9.02,
+    "mlp_4096x128_train_step_ms": 0.66,
+    "cnn_64x3x128x128_train_step_ms": 15.282,
+    "transformer_256x100x256_train_step_ms": 41.836
+  },
+  "gpu_speedup": {
+    "matmul4096_fp32_ms": 13.75,
+    "mlp_4096x128_train_step_ms": 11.35,
+    "cnn_64x3x128x128_train_step_ms": 2.96,
+    "transformer_256x100x256_train_step_ms": 10.18,
+    "matmul_tflops": 13.67
+  }
+}

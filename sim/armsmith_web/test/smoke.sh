@@ -4,11 +4,15 @@
 #   a) serves this dir over http://127.0.0.1:<http_port>
 #   b) starts the REAL hub (agents/hub.py — copied to scratch so its state files
 #      (runs/bus.*) land in /tmp and never clobber a concurrently-running hub;
-#      if 8890 is busy the hub walks upward and we read the real port it chose)
+#      starts at 8893 — 8890-8892 are the standing dev bus/sim/Laya ports — and if
+#      that is busy the hub walks upward; we read the real port it chose)
 #   c) dumps the DOM of  ?autotest=1  under Chromium + SwiftShader (no GPU)
 #   d) checks: #status shows `running step=` with step > 50; #busstat shows obs SENT
 #      to the hub; no error-overlay text; a Python probe's ping gets a pong while
-#      the page is alive on the bus.
+#      the page is alive on the bus; ?meshcheck=1 reports `meshcheck PASS` (FK lands
+#      within ±15 mm on 5 probe targets) and which visual path loaded
+#      (`meshes=stl|capsule` — capsule here is a VALID pass: STL fetch failures
+#      silently fall back). smoke_meshes.sh is the one that asserts meshes=stl.
 #
 # Prints PASS/FAIL with diagnostics; kills everything it started. Repo files untouched.
 
@@ -37,7 +41,7 @@ trap cleanup EXIT
 echo "== ARMSMITH web smoke =="
 
 # ---- 1) the real hub, isolated state ----------------------------------------
-( cd "$ISOHUB" && exec "$PY" hub.py --port 8890 ) > "$OUT/hub.log" 2>&1 &
+( cd "$ISOHUB" && exec "$PY" hub.py --port 8893 ) > "$OUT/hub.log" 2>&1 &
 HUB_PID=$!
 for i in $(seq 1 50); do
   sleep 0.2
@@ -62,11 +66,14 @@ sleep 0.7
 echo "http: serving $WEB on port $HTTP_PORT"
 
 # ---- 3) headless chromium over the page (runs in bg; probe rides along) ------
-URL="http://127.0.0.1:$HTTP_PORT/?autotest=1&hub=ws://127.0.0.1:$HUB_PORT/ws"
+URL="http://127.0.0.1:$HTTP_PORT/?autotest=1&meshcheck=1&hub=ws://127.0.0.1:$HUB_PORT/ws"
+# fresh profile per run — a reused profile serves CACHED src/*.js and would test
+# yesterday's code (bit us once: identical DOM byte count to the baseline run)
+CHROME_PROFILE="$(mktemp -d "$OUT/chrome-profile.XXXXXX")"
 echo "chrome: $URL"
 "$CHROME" --headless=new --disable-gpu --enable-unsafe-swiftshader --use-angle=swiftshader \
   --window-size=1280,800 --virtual-time-budget=20000 --no-first-run --no-default-browser-check \
-  --user-data-dir="$OUT/chrome-profile" \
+  --user-data-dir="$CHROME_PROFILE" \
   --dump-dom "$URL" > "$OUT/dom.html" 2> "$OUT/chrome.err" &
 CHROME_PID=$!
 
@@ -128,6 +135,21 @@ if [ "$SANITY_RC" -eq 0 ]; then
 else
   echo "bus probe (ping/pong + obs): FAIL"; FAIL=1
 fi
+
+# meshcheck: FK acceptance probe (?meshcheck=1 writes PASS/FAIL into #status).
+# Both visual paths are accepted here; smoke_meshes.sh asserts the STL path.
+MESHCHECK="$(grep -o 'meshcheck \(PASS\|FAIL\)[^"<]*' "$OUT/dom.html" | tail -1)"
+case "$MESHCHECK" in
+  meshcheck\ PASS*)
+    echo "meshcheck (FK ±15mm, 5 targets): PASS ($MESHCHECK)"
+    MESH_PATH="$(grep -o 'meshes=\(stl\|capsule\)' "$OUT/dom.html" | tail -1)"
+    echo "visual path: $MESH_PATH (both accepted by this test)"
+    ;;
+  "")
+    echo "meshcheck (FK ±15mm, 5 targets): FAIL (no meshcheck line in DOM)"; FAIL=1 ;;
+  *)
+    echo "meshcheck (FK ±15mm, 5 targets): FAIL ($MESHCHECK)"; FAIL=1 ;;
+esac
 
 echo "== diagnostics =="
 echo "--- chrome.stderr (tail) ---"; tail -6 "$OUT/chrome.err" || true

@@ -48,6 +48,7 @@ pyyaml==6.0.4
 requests==2.34.2
 safetensors==0.8.0
 setuptools==78.1.0
+stable-baselines3==2.9.2
 starlette==1.10.0
 sympy==1.14.0
 termcolor==3.3.0

@@ -1,12 +1,15 @@
 // bus.js — Robot Bus protocol client (docs/PROTOCOL.md v1).
 // Publishes sim.obs at obs_hz + sim.event; handles every sim.cmd; snapshot replies
 // carry the request's id + to. High-rate topics are opt-in per protocol, so we publish
-// but never subscribe sim.obs; we subscribe vision.hands for mocap control.
+// but never subscribe sim.obs by default; we subscribe vision.hands for mocap control.
+// `subscribe` (ctor) opts in to EXTRA high-rate topics (puppet mode: sim.obs) and
+// handlers.onObs/onMsg receive sim.obs / every other non-cmd topic (train.metrics…).
 
 export class BusClient {
-  constructor({ url, handlers }) {
+  constructor({ url, handlers, subscribe }) {
     this.url = url || "ws://127.0.0.1:8890/ws";
-    this.handlers = handlers; // { onCmd(data, envelope), onRoster(data), onHands(data), onStatus(text) }
+    this.handlers = handlers; // { onCmd, onRoster, onHands, onObs, onMsg, onStatus }
+    this.subscribe = Array.isArray(subscribe) ? subscribe : [];
     this.name = "armsmith-web";
     this.connected = false;
     this.sent = 0;
@@ -15,6 +18,8 @@ export class BusClient {
     this.obsSent = 0;
     this.eventsSent = 0;
     this.repliesSent = 0;
+    this.obsRecv = 0;
+    this.metricsRecv = 0;
     this.obsHz = 30;
     this.record = false;
     this._obsAcc = 0;
@@ -32,7 +37,7 @@ export class BusClient {
       this.connected = true;
       this._retry = 0;
       this.send({ topic: "bus.hello", data: { name: "armsmith-web", roles: ["sim"], caps: ["ik", "rapier", "servo"] } });
-      this.send({ topic: "bus.sub", data: { topics: ["vision.hands"] } });
+      this.send({ topic: "bus.sub", data: { topics: [...new Set(["vision.hands", ...this.subscribe])] } });
       this.handlers.onStatus && this.handlers.onStatus(`bus: connected ${this.url}`);
     };
     ws.onmessage = (ev) => {
@@ -49,11 +54,22 @@ export class BusClient {
       }
       if (topic === "bus.sub_ack" || topic === "bus.join" || topic === "bus.leave") return;
       if (topic === "vision.hands") { this.handlers.onHands && this.handlers.onHands(msg.data || {}); return; }
+      if (topic === "sim.obs") {
+        this.obsRecv++;
+        this.handlers.onObs && this.handlers.onObs(msg.data || {}, msg);
+        return;
+      }
+      if (topic === "train.metrics") {
+        this.metricsRecv++;
+        this.handlers.onMetrics && this.handlers.onMetrics(msg.data || {}, msg);
+        return;
+      }
       if (topic === "sim.cmd") {
         this.recvCmds++;
         this.handlers.onCmd && this.handlers.onCmd(msg.data || {}, msg);
         return;
       }
+      if (this.handlers.onMsg) { this.handlers.onMsg(msg); return; } // generic catch-all (must stay after cmd routes)
       if (topic === "log") { console.log("[bus log]", msg.data); return; }
     };
     ws.onclose = () => {

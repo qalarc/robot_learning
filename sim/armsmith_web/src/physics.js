@@ -12,6 +12,7 @@ import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
 import { r2t, quatRobotToThree, t2r } from "./frames.js";
 import { matToQuat } from "./frames.js";
+import { REAL_SO101 } from "./arm_config.js";
 
 export const GRAVITY = -9.81;
 const FINGERS_GROUP = (0x0001 << 16) | 0xffff;      // membership 1, collide with everything
@@ -77,16 +78,25 @@ export class Physics {
       const body = W.createRigidBody(desc);
       bodies.push(body);
 
-      // colliders (body-local, three frame; local Y = bone direction)
+      // colliders (body-local, three frame; local Y = bone direction).
+      // Masses from so101_new_calib.xml (verified 2026-11-24): each joint's link mass
+      // rides its collider (roll body also carries the moving jaw's 0.012 kg). The
+      // base body keeps its fixed 0.147 kg pedestal (set below via density-free fixed body).
       const j = cfg.joints[i];
+      let col = null;
       if (i === 0) {
-        W.createCollider(R.ColliderDesc.cylinder(0.024, 0.034).setTranslation(0, 0.01, 0), body);
+        col = W.createCollider(R.ColliderDesc.cylinder(0.024, 0.034).setTranslation(0, 0.01, 0), body);
       } else if (i === 4) {
-        // roll link = palm area
-        W.createCollider(R.ColliderDesc.cuboid(0.024, 0.02, 0.024).setTranslation(0, 0.016, 0), body);
+        // roll link = palm area + moving jaw (0.087 + 0.012 kg in the MJCF)
+        col = W.createCollider(R.ColliderDesc.cuboid(0.024, 0.02, 0.024).setTranslation(0, 0.016, 0), body);
       } else {
-        W.createCollider(R.ColliderDesc.capsule(Math.max(0.01, j.linkLength / 2 - 0.02), j.linkRadius)
+        col = W.createCollider(R.ColliderDesc.capsule(Math.max(0.01, j.linkLength / 2 - 0.02), j.linkRadius)
           .setTranslation(0, j.linkLength / 2, 0), body);
+      }
+      if (this.mode === "dynamic") {
+        // real mass (kg) — kinematic mode ignores mass entirely (deterministic FK)
+        const mass = j.massKg ?? 0.05;
+        col.setMass(i === 4 ? mass + (cfg && REAL_SO101.massesKg.moving_jaw) : mass);
       }
     }
 
@@ -96,8 +106,12 @@ export class Physics {
         const data = R.JointData.revolute(anchor1, { x: 0, y: 0, z: 0 }, axis);
         const joint = W.createImpulseJoint(data, parentBody, childBody, true);
         joint.setLimits(limits[0], limits[1]);
-        joint.configureMotorPosition(0, 260, 14);
-        joint.setMotorMaxForce(34);
+        // PD gains + torque cap from so101_new_calib.xml, verified 2026-11-24:
+        // MuJoCo <position kp="998.22" kv="2.731" forcerange="±3.35 N·m"> — the same
+        // form as Rapier's configureMotorPosition(target, stiffness, damping), with the
+        // motor force clamp standing in for MuJoCo's forcerange (was eyeballed 260/14/34).
+        joint.configureMotorPosition(0, REAL_SO101.actuatorKp, REAL_SO101.actuatorKv);
+        joint.setMotorMaxForce(REAL_SO101.actuatorForceRangeNm);
         return joint;
       };
       joints.push(mk(baseBody, bodies[0], { x: r2t(cfg.panPivot)[0], y: r2t(cfg.panPivot)[1], z: r2t(cfg.panPivot)[2] }, { x: 0, y: 1, z: 0 }, [cfg.joints[0].min, cfg.joints[0].max]));
@@ -128,8 +142,11 @@ export class Physics {
         const data = R.JointData.prismatic({ x: 0, y: 0.036, z: 0 }, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: -1 });
         const joint = W.createImpulseJoint(data, bodies[4], jaw, true);
         joint.setLimits(-cfg.gripperWidth / 2, cfg.gripperWidth / 2);
-        joint.configureMotorPosition(0, 200, 10);
-        joint.setMotorMaxForce(18);
+        // same MJCF position-actuator gains/forcerange as the hinge joints (the web jaw
+        // is a prismatic stand-in for the real rotating moving jaw — mapping documented
+        // in README "Real meshes + real properties")
+        joint.configureMotorPosition(0, REAL_SO101.actuatorKp, REAL_SO101.actuatorKv);
+        joint.setMotorMaxForce(REAL_SO101.actuatorForceRangeNm);
         jaws.push({ body: jaw, joint, sign });
       }
     }
@@ -168,13 +185,14 @@ export class Physics {
       }
     } else {
       // servo-quantised targets straight into the PD position motors
+      // (gains from so101_new_calib.xml <position kp kv>, verified 2026-11-24)
       for (let i = 0; i < arm.joints.length; i++) {
-        arm.joints[i].configureMotorPosition(servoTargetAngles[i], 260, 14);
+        arm.joints[i].configureMotorPosition(servoTargetAngles[i], REAL_SO101.actuatorKp, REAL_SO101.actuatorKv);
       }
       // jaws: prismatic motor target = inward displacement from rest (in metres)
       const halfOpen = cfg.gripperWidth / 2;
       const inward = halfOpen - 0.001 - (halfOpen - 0.006) * closeAmount;
-      for (const jw of arm.jaws) jw.joint.configureMotorPosition(-jw.sign * inward, 200, 10);
+      for (const jw of arm.jaws) jw.joint.configureMotorPosition(-jw.sign * inward, REAL_SO101.actuatorKp, REAL_SO101.actuatorKv);
     }
   }
 

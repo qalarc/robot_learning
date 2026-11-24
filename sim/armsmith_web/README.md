@@ -110,3 +110,43 @@ kinematic stays the demo default.
 - `test/debug_boot.html` is a dev-only module-graph bisection page (writes diagnostics
   into `document.title`).
 - Serving requires HTTP (ES modules don't load from `file://`).
+
+## Puppet mode — mirror an external simulator (`?view=puppet`)
+
+Open **http://127.0.0.1:8891/?view=puppet** (add `&hub=ws://127.0.0.1:PORT/ws` to point at
+another hub). The page becomes a **display** for a simulator running elsewhere: it does NOT
+step its own arm, load physics, or accept the usual HUD — it subscribes to `sim.obs`
+(high-rate opt-in, PROTOCOL.md) and mirrors whatever an external publisher says:
+
+- `data.q` (5 joint radians, ArmConfig publish order) + `data.gripper` → the same FK rig,
+  servo visuals and gripper jaws as the local sim;
+- `data.objects` → boxes/spheres at `pos`/`quat` (robot→three frame conversion via
+  `frames.js`; sphere guessed from the id/shape, colour hashed from id, green tint when
+  `grasped`);
+- `data.goal.pos` → translucent green puck + drop-beam;
+- `data.ee.pos` → green EE dot (falls back to FK TCP when absent); `data.ik_target` →
+  pink gizmo;
+- HUD: `source: <msg.src> · <scenario> · ep <ep> · step <step> · <stage>`; `#status` =
+  `puppet step=<n> src=<src>`; after 2 s without obs → `waiting for sim…`;
+  `#puppetMetrics` shows the latest `train.metrics` (timesteps · success % · fps · nines).
+- Camera: RMB drag orbit / MMB pan / wheel zoom.
+
+Every field is optional — missing values keep the last state, nothing throws. The red
+error overlay still catches everything (index.html pre-module hooks). Headless tests can
+rely on `#status`'s `data-step` / `data-src` attributes: they are written only by obs and
+never touched by the watchdog.
+
+Branching: `main.js` checks `?view=puppet` before creating any WebGL context and
+dynamically imports `src/puppet.js`; the local-sim boot path never runs in that mode.
+
+Test:
+
+```bash
+bash test/smoke_puppet.sh   # isolated hub + fake MuJoCo publisher + headless Chromium
+```
+
+Fake data without training:
+
+```bash
+sim/py/.venv/bin/python sim/dashboard/test/fake_publisher.py   # src "mujoco-demo", 30 Hz
+```

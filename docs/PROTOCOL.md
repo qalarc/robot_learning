@@ -129,6 +129,26 @@ internally: `three.x = x`, `three.y = z`, `three.z = -y`.)
 
 `data: {"level":"info|warn|error","msg":"..."}`
 
+### `train.metrics` — live training telemetry (broadcast, ≤5 Hz)
+
+```json
+{"run":"rl_20261124-041200","env":"reach","policy":"PPO","stage":"train|eval|demo",
+ "timesteps":123456,"fps":45678,"elapsed_s":12.4,"ep_rew_mean":12.3,"ep_len_mean":95.0,
+ "ep_success_rate":0.42,"failure_rate":0.58,"nines":0.237,
+ "baseline_failure_rate":0.97,"baseline_nines":0.013,"n_envs":16,"source":"mujoco"}
+```
+
+`nines = -log10(failure_rate)` — the hackathon headline metric (99% success = 2 nines).
+Publishers include `baseline_*` once a random/scripted baseline has been measured so
+dashboards can render before → after.
+
+### Puppet view — "train headless, watch in Three.js"
+
+Any simulator (MuJoCo, an RL worker, a replay) may publish `sim.obs` with its own `src`
+(e.g. `"mujoco"`); the web viewer's `?view=puppet` mode renders those states through the
+same rig instead of stepping its own physics. `q` is always the 5 joint radians in
+ArmConfig order + `gripper` 0..1.
+
 ## Ground rules for anything on the bus
 
 1. Never publish raw joint commands outside the arm's limits — symbolic skills only from reasoners.

@@ -285,21 +285,93 @@ class Controller:
             self.stall_steps = 0  # re-arm
             return
 
-        # L3 -- System 2 + safety shield
+        # L3 -- System 2 + safety shield. Streaming when available: each step is
+        # shielded and issued the moment the model finishes writing it, so the
+        # robot starts recovering in ~3-8 s instead of waiting out the whole
+        # 12-38 s plan. Blocking ask() (or the scripted plan) stays as fallback;
+        # the shield rules are shared (validate_step) on every path.
         t0 = time.time()
-        source, steps, s2res = (
-            "scripted",
-            scripted_recovery((obs_data.get("ee") or {}).get("pos") or []),
-            None,
-        )
+        ee = (obs_data.get("ee") or {}).get("pos") or [0.15, 0.0, 0.10]
+        source, steps, s2res = "scripted", scripted_recovery(list(ee)), None
+        issued: list[dict] = []
+        pend: dict | None = None  # armed the moment the FIRST command is issued
+
+        def _on_step(validated: dict, _idx: int, _raw: dict) -> None:
+            """Stream consumer: translate + issue one step as it arrives.
+            Bookkeeping (the evaluation window) arms here -- not before
+            reasoning starts -- so obs queued while the model was still
+            writing can't burn the window."""
+            nonlocal pend
+            for cmd in plan_to_cmds(validated, list(ee)):
+                if pend is None:
+                    pend = {
+                        "state": state,
+                        "laya": laya,
+                        "s2": None,  # completed result attached when stream ends
+                        "issued": issued,  # mutated live as more steps stream in
+                        "stall_step": self.step,
+                        "stall_t": time.time(),
+                        "stall_dist": self.best_dist,
+                    }
+                    self.pending = pend
+                    self.eval_until = self.step + self.args.eval_window
+                    self._ignore_obs_before = time.time()  # fresh obs only from here
+                    self.stall_steps = 0
+                    self.prior_recoveries += 1
+                    self.m["escalations"] += 1
+                    self._metrics_dirty = True
+                issued.append(cmd)
+                if not self.args.dry_run:
+                    try:
+                        self.bus.send("sim.cmd", cmd, to=self.args.sim)
+                    except Exception as e:  # bus died mid-issuance: log, keep the label
+                        self.log("error", f"bus send failed ({e}); recovery truncated")
+                        break
+                    time.sleep(self.args.step_gap)
+
         if self.s2:
-            s2res = self.s2.ask(dossier)
+            if hasattr(self.s2, "ask_stream"):
+                s2res = self.s2.ask_stream(dossier, _on_step)
+            else:
+                s2res = self.s2.ask(dossier)
             if s2res:
                 self.m["glm_calls"] += 1
                 if s2res["steps"]:
-                    source, steps = "glm-s2", s2res["steps"]
+                    steps = s2res["steps"]
+                    source = "glm-s2 (stream)" if pend is not None else "glm-s2"
                 if s2res.get("rejections"):
                     self.log("warn", f"shield rejected: {s2res['rejections']}")
+
+        if pend is not None:
+            # streaming path: commands already went out as the steps arrived
+            if s2res:
+                pend["s2"] = s2res
+            ttfa = s2res.get("ttfa_s") if s2res else None
+            self.log(
+                "info",
+                f"recovery via glm-s2 (stream) ttfa={ttfa}s "
+                f"total={time.time() - t0:.1f}s ({len(steps)} steps)"
+                + (f" s2_latency={s2res['latency_s']}s" if s2res else ""),
+            )
+            try:
+                self.bus.send(
+                    "ctl.recovery",
+                    {
+                        "ep": self.ep,
+                        "step": self.step,
+                        "source": source,
+                        "plan": s2res["plan_raw"] if s2res else {"steps": steps},
+                        "issued": issued,
+                        "dry_run": self.args.dry_run,
+                    },
+                )
+            except Exception:
+                pass
+            self.write_metrics()
+            if self.args.once:
+                raise KeyboardInterrupt  # demo mode: one escalation then exit
+            return
+
         self.log(
             "info",
             f"recovery via {source} in {time.time() - t0:.1f}s "
@@ -307,9 +379,7 @@ class Controller:
             + (f" s2_latency={s2res['latency_s']}s" if s2res else ""),
         )
 
-        # translate + issue
-        ee = (obs_data.get("ee") or {}).get("pos") or [0.15, 0.0, 0.10]
-        issued = []
+        # translate + issue (blocking path: the whole plan is known up front)
         for st in steps:
             for cmd in plan_to_cmds(st, list(ee)):
                 issued.append(cmd)

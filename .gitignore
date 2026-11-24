@@ -1,6 +1,7 @@
-# environments (recreate with scripts/setup_sim_env.sh + scripts/setup_training_env.sh)
+# environments
 sim/py/.venv/
 training/.venv/
+sim/gpu/.venv/
 __pycache__/
 *.pyc
 .ruff_cache/
@@ -15,8 +16,9 @@ runs/_*
 runs/metrics.json
 !runs/.gitkeep
 
-# bulk: models, datasets, smoke-test artifacts
+# bulk: models, datasets, smoke-test artifacts, rl checkpoints
 training/_smoke/
+runs/rl/
 datasets/
 *.pt
 *.safetensors
@@ -28,3 +30,5 @@ datasets/
 # editors / OS
 .DS_Store
 *.swp
+runs/*.pids
+runs/dashboard-*.log

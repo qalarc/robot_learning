@@ -5,6 +5,9 @@
        wrist pitch (y) -> wrist roll (z) -> gripper with TWO parallel prismatic fingers.
        Scale: ~35 cm reach, STS3215-servo-like torque scale.
        Author: builder agent, robot_learning repo. CC0-style placeholder geometry. -->
+  <!-- angle="radian" is REQUIRED: MuJoCo's default is degree, which silently
+       divides these radian ranges by 57.3 and pins the arm in a ±3° cone. -->
+  <compiler angle="radian"/>
   <option timestep="0.002" gravity="0 0 -9.81"/>
   <visual>
     <global offwidth="1280" offheight="720"/>
@@ -20,6 +23,11 @@
     <geom name="floor" type="plane" size="2 2 0.1" rgba="0.25 0.3 0.35 1"/>
     <light name="top" pos="0.3 0.3 1.0" dir="0 0 -1" diffuse="0.7 0.7 0.7"/>
     <light name="fill" pos="-0.4 0.2 0.8" dir="0 0 -1" diffuse="0.3 0.3 0.3"/>
+
+    <!-- task markers (2026-11-24, mujoco_env.py moves model.site_pos; sites never collide):
+         target = random reach goal above the table; zone = push-T zone on the floor. -->
+    <site name="target" pos="0.22 0 0.10" size="0.008" rgba="0.9 0.2 0.2 0.6"/>
+    <site name="zone" pos="0.24 0 0.003" type="box" size="0.04 0.04 0.003" rgba="0.2 0.8 0.3 0.4"/>
 
     <!-- static pedestal -->
     <geom name="pedestal" type="cylinder" pos="0 0 0.02" size="0.07 0.02" rgba="0.3 0.3 0.3 1"/>
@@ -46,6 +54,8 @@
               <geom class="link" name="g_palm_mount" fromto="0 0 0 0 0 0.02" size="0.012" rgba="0.85 0.45 0.1 1"/>
               <!-- gripper palm -->
               <geom name="g_palm" type="box" pos="0 0 0.025" size="0.025 0.008 0.008" rgba="0.2 0.2 0.2 1"/>
+              <!-- end-effector site: fingertip midpoint (z 0.033 finger origin + 0.048 tip) -->
+              <site name="ee" pos="0 0 0.081" size="0.004" rgba="0.1 0.6 0.9 0.9"/>
               <!-- finger left: prismatic along y -->
               <body name="finger_left" pos="-0.012 0 0.033">
                 <joint name="j6_finger_left" type="slide" axis="0 1 0" range="-0.018 0.002"/>

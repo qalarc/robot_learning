@@ -2,21 +2,27 @@
 // Every joint command passes through this so the sim is a true digital twin:
 // commands are rate-limited to the no-load speed and quantised to servo ticks,
 // exactly what the real motor would receive.
+// Torque cap from so101_new_calib.xml (verified 2026-11-24): the six <position>
+// actuators carry forcerange ±3.35 N·m (the MJCF's actuator-level override of the
+// sts3215 class default ±2.94) — see REAL_SO101 in arm_config.js.
+
+import { REAL_SO101 } from "./arm_config.js";
 
 export class ServoModel {
   constructor(opts = {}) {
     this.servoId = opts.servoId ?? 1;
-    this.ticksPerRev = opts.ticksPerRev ?? 4096;   // STS3215: 4096 ticks / 360 deg
+    this.ticksPerRev = opts.ticksPerRev ?? REAL_SO101.ticksPerRev; // STS3215: 4096 ticks / 360 deg
     this.centerDeg = opts.centerDeg ?? 180;        // tick 2048 = 180 deg (mid-range)
     // Feetech 12V STS3215 no-load ~270 deg/s (0.222 s/60deg); 7.4V SO-101 follower slower.
-    this.maxSpeedDegPerSec = opts.maxSpeedDegPerSec ?? 270;
-    // 7.4V SO-101 follower stall torque ~16.5 kg.cm = 1.62 N.m (12V = 2.94 N.m).
-    this.maxTorqueNm = opts.maxTorqueNm ?? 1.6;
+    this.maxSpeedDegPerSec = opts.maxSpeedDegPerSec ?? REAL_SO101.servoNoLoadSpeedDegPerSec;
+    // Torque cap: MJCF actuator forcerange ±3.35 N·m (was an eyeballed 1.6 before
+    // so101_new_calib.xml was adopted as ground truth, verified 2026-11-24).
+    this.maxTorqueNm = opts.maxTorqueNm ?? REAL_SO101.actuatorForceRangeNm;
     this.minDeg = opts.minDeg ?? -180;
     this.maxDeg = opts.maxDeg ?? 180;
     this.invert = opts.invert ?? false;
     this.offsetDeg = opts.offsetDeg ?? 0;
-    this.deadbandTicks = opts.deadbandTicks ?? 1;  // < 1 tick of motion is not applied
+    this.deadbandTicks = opts.deadbandTicks ?? 1;  // < 1 tick (0.088°) of motion is not applied
   }
 
   /// Game joint angle (deg, 0=neutral) -> raw servo tick [0..ticksPerRev).  [ServoModel.cs]
@@ -64,13 +70,13 @@ export class ServoModel {
 }
 
 /// One servo per joint (like ProceduralArm.cs: ids 1..N map to the real bus).
-export function makeServos(cfg, ticksPerRev = 4096) {
+export function makeServos(cfg, ticksPerRev = REAL_SO101.ticksPerRev) {
   return cfg.joints.map((j) => new ServoModel({
     servoId: j.servoId,
     minDeg: j.min * 180 / Math.PI,
     maxDeg: j.max * 180 / Math.PI,
     ticksPerRev,
-    maxSpeedDegPerSec: 270,
-    maxTorqueNm: 1.6,
+    maxSpeedDegPerSec: REAL_SO101.servoNoLoadSpeedDegPerSec,
+    maxTorqueNm: REAL_SO101.actuatorForceRangeNm, // from so101_new_calib.xml, verified 2026-11-24
   }));
 }

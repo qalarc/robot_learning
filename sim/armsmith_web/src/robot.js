@@ -122,7 +122,57 @@ export function anglesFromPlanarPoints(points, cfg = ARM_CONFIG, yaw = 0) {
 }
 
 // ---------- visuals --------------------------------------------------------
+// Two visual tiers:
+//   1. REAL MESHES (default when assets load): the official SO-101 STLs from
+//      TheRobotStudio/SO-ARM100 (assets/so101/, Apache-2.0), placed per joint with
+//      local offsets/rotations derived from the calibrated official MJCF
+//      (so101_new_calib.xml) — placements verified against the MJCF chain to
+//      <1e-5 deg over 200 random poses (tools: /tmp/rl_b4/compute_placements3.py,
+//      2026-11-24). The arm skeleton here is the web sim's planar idealisation
+//      (arm_config.js): mesh pivots are anchored to ITS pivots, lateral y offsets
+//      are collapsed so meshes ride the planar bones (documented in README).
+//   2. CAPSULE FALLBACK: the original primitive rig below. If ANY STL fetch/parse
+//      fails (404, bad file, missing STLLoader) we silently keep the capsule rig —
+//      the sim never breaks (also covers headless SwiftShader runs).
+// STL units are METRES (the onshape-to-robot sim set; the MJCF references them
+// without a scale attribute) — no mm scaling needed.
 const SERVO_PALETTE = [0xf24d4d, 0xfa9e33, 0xf2d940, 0x59cc66, 0x4da6f2]; // ProceduralArm.cs palette
+
+// Per-joint STL placements in the WEB joint frames at the arm-up calibration pose.
+// pos = robot-frame metres relative to the joint pivot; quat = robot-frame [w,x,y,z].
+// joint: 0 pan · 1 lift · 2 elbow · 3 wrist_flex · 4 wrist_roll · -1 static base.
+const SO101_MESH_PLACEMENTS = [
+  { mesh: "base_motor_holder_so101_v1", joint: -1, pos: [-0.006365, -0.000099, -0.002400], quat: [0.5000000, 0.5000000, 0.5000000, 0.5000000] },
+  { mesh: "base_so101_v2", joint: -1, pos: [-0.006365, -0.000000, -0.002400], quat: [0.5000000, 0.5000000, 0.5000000, 0.5000000] },
+  { mesh: "sts3215_03a_v1", joint: -1, pos: [0.026335, -0.000000, 0.043700], quat: [1.0000000, -0.0000000, -0.0000000, 0.0000000] },
+  { mesh: "waveshare_mounting_plate_so101_v2", joint: -1, pos: [-0.030983, -0.000199, 0.047400], quat: [0.5000000, 0.5000000, 0.5000000, 0.5000000] },
+  { mesh: "sts3215_03a_v1", joint: 0, pos: [0.030435, 0.000000, 0.041700], quat: [0.5000000, 0.5000000, -0.5000000, 0.5000000] },
+  { mesh: "motor_holder_so101_base_v1", joint: 0, pos: [0.067634, 0.000000, -0.015850], quat: [-0.5000000, -0.5000000, -0.5000000, 0.5000000] },
+  { mesh: "rotation_pitch_so101_v1", joint: 0, pos: [-0.012166, 0.000000, -0.046400], quat: [0.0000000, 0.0000000, -0.7071070, -0.7071070] },
+  { mesh: "sts3215_03a_v1", joint: 1, pos: [0.048704, 0.000000, 0.122183], quat: [0.7018604, 0.7018604, -0.0859784, 0.0859784] },
+  { mesh: "upper_arm_so101_v1", joint: 1, pos: [0.033479, 0.000000, 0.069464], quat: [-0.5570860, -0.5570860, -0.4354942, 0.4354942] },
+  { mesh: "under_arm_so101_v1", joint: 2, pos: [0.095309, 0.000000, 0.076169], quat: [-0.4902761, -0.4902761, -0.5095386, 0.5095386] },
+  { mesh: "motor_holder_so101_wrist_v1", joint: 2, pos: [0.095309, 0.000000, 0.076169], quat: [0.4902761, 0.4902761, 0.5095386, -0.5095386] },
+  { mesh: "sts3215_03a_v1", joint: 2, pos: [0.060353, 0.000000, 0.135110], quat: [0.5095386, 0.5095386, -0.4902761, 0.4902761] },
+  { mesh: "sts3215_03a_no_horn_v1", joint: 3, pos: [0.060835, 0.000000, 0.055100], quat: [-0.7071072, 0.0000000, -0.0000000, 0.7071072] },
+  { mesh: "wrist_roll_pitch_so101_v2", joint: 3, pos: [0.060835, 0.000000, 0.040700], quat: [-0.0000000, 0.7071072, 0.7071072, -0.0000000] },
+  { mesh: "sts3215_03a_v1", joint: 4, pos: [0.053139, 0.000000, 0.034100], quat: [0.0172091, 0.0172091, -0.7068977, -0.7068977] },
+  { mesh: "wrist_roll_follower_so101_v1", joint: 4, pos: [0.060845, 0.000000, 0.009751], quat: [-0.0243374, 0.0000000, -0.0000000, 0.9997039] },
+  { mesh: "moving_jaw_so101_v1", joint: 4, pos: [0.040663, 0.000000, 0.034100], quat: [-0.0172091, 0.0172091, -0.7068977, 0.7068977] },
+];
+
+// Moving-jaw hinge axis (robot frame at the arm-up pose; the 2.79° calib offset of the
+// wrist_roll joint origin is baked in) + jaw joint travel, from so101_new_calib.xml.
+const JAW_AXIS = [0.048660, -0.998815, -0.000001];
+const JAW_OPEN_RAD = 1.7453291995659765;    // +100° = fully open (MJCF gripper range)
+const JAW_CLOSE_RAD = -0.17453297762778586; // -10° = closed
+
+const STL_DIR = "./assets/so101/";
+// Neutral two-tone: dark-grey structure + amber accent on the servo bodies (the MJCF's
+// own palette family: black servos / amber structure — inverted so parts read in-scene).
+const STL_STRUCT_COLOR = 0x57606c;
+const STL_ACCENT_COLOR = 0xcf9d3f;
+const ACCENT_MESHES = new Set(["sts3215_03a_v1", "sts3215_03a_no_horn_v1"]);
 
 function capsuleMesh(r, len, color) {
   const geo = new THREE.CapsuleGeometry(r, Math.max(0.01, len - 2 * r), 6, 12);
@@ -148,6 +198,12 @@ function setSpan(mesh, aRobot, bRobot, radius) {
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
   mesh.scale.set(1, len / (mesh.userData.len0 || 1), 1);
   return len;
+}
+
+// robot-frame quaternion [w,x,y,z] -> three THREE.Quaternion
+function robotQuat3(qRobot) {
+  const q = quatRobotToThree(qRobot);
+  return new THREE.Quaternion(q[1], q[2], q[3], q[0]);
 }
 
 export function buildArm(scene, cfg = ARM_CONFIG) {
@@ -198,6 +254,77 @@ export function buildArm(scene, cfg = ARM_CONFIG) {
     new THREE.MeshBasicMaterial({ color: 0x4be07a }));
   group.add(eeDot);
 
+  // ---- real-STL skin (async swap-in; capsule rig above stays as the fallback) ----
+  const stlStatic = new THREE.Group();          // base meshes (world placement)
+  const stlGroups = [];                          // one group per web joint 0..4
+  for (let i = 0; i < 5; i++) {
+    const g = new THREE.Group();
+    g.name = `stl_joint_${i}`;
+    g.visible = false;
+    group.add(g); stlGroups.push(g);
+  }
+  group.add(stlStatic);
+
+  // capsule visuals hidden when the full STL skin loads
+  const capsuleVisuals = [foot, base, ...servos, ...links, palm, fingerL, fingerR];
+
+  const meshState = { path: "capsule", loaded: 0, total: SO101_MESH_PLACEMENTS.length, files: {} };
+  let jawMesh = null;
+  let jawBaseQuat = null;
+  const jawAxisThree = (() => {
+    const t = r2t(JAW_AXIS);                   // robot -> three basis change
+    return new THREE.Vector3(t[0], t[1], t[2]).normalize();
+  })();
+
+  // Fetch+parse each unique STL once; any failure (404/parse/loader-missing) => null.
+  // Resolves when every fetch has settled: meshState.path is final afterwards, so the
+  // smoke tests can assert meshes=stl|capsule deterministically (no timers involved).
+  const meshesReady = (async () => {
+    let loader = null;
+    try {
+      const m = await import("three/loaders/STLLoader.js");
+      loader = new m.STLLoader();
+    } catch (e) {
+      console.warn("STL skin disabled: STLLoader import failed:", e && (e.stack || e.message) || e);
+      meshState.files["<stlloader>"] = "fail"; return meshState;   // capsule fallback
+    }
+    const geoCache = new Map();                  // file -> Promise<BufferGeometry|null>
+    const loadGeo = (name) => {
+      if (!geoCache.has(name)) {
+        // placement mesh names are the MJCF mesh ids (extension-less); the files on
+        // disk carry .stl
+        geoCache.set(name, loader.loadAsync(`${STL_DIR}${name}.stl`)
+          .then((g) => { meshState.files[name] = "ok"; return g; })
+          .catch((e) => { console.warn(`STL fetch failed: ${name}`, e && (e.message || e)); meshState.files[name] = "fail"; return null; }));
+      }
+      return geoCache.get(name);
+    };
+    const geos = await Promise.all(SO101_MESH_PLACEMENTS.map((pl) => loadGeo(pl.mesh)));
+    const ok = geos.every((g) => g !== null);
+    if (!ok) { meshState.path = "capsule"; return meshState; }    // silent full fallback
+    const matStruct = new THREE.MeshStandardMaterial({
+      color: STL_STRUCT_COLOR, roughness: 0.62, metalness: 0.18, flatShading: true });
+    const matAccent = new THREE.MeshStandardMaterial({
+      color: STL_ACCENT_COLOR, roughness: 0.5, metalness: 0.25, flatShading: true });
+    SO101_MESH_PLACEMENTS.forEach((pl, i) => {
+      const mesh = new THREE.Mesh(geos[i], ACCENT_MESHES.has(pl.mesh) ? matAccent : matStruct);
+      mesh.name = `stl_${pl.mesh}${pl.joint >= 0 ? `_j${pl.joint}` : "_base"}`;
+      mesh.position.set(...r2t(pl.pos));
+      mesh.quaternion.copy(robotQuat3(pl.quat));
+      mesh.visible = false;                      // revealed together below (atomic swap)
+      (pl.joint >= 0 ? stlGroups[pl.joint] : stlStatic).add(mesh);
+      if (pl.mesh === "moving_jaw_so101_v1") { jawMesh = mesh; jawBaseQuat = mesh.quaternion.clone(); }
+      meshState.loaded++;
+    });
+    if (jawMesh && !jawBaseQuat) jawBaseQuat = jawMesh.quaternion.clone();
+    // atomic swap: STL skin on, capsule primitives off
+    for (const g of stlGroups) g.visible = true;
+    for (const m of [...stlStatic.children, ...stlGroups.flatMap((g) => g.children)]) m.visible = true;
+    for (const m of capsuleVisuals) m.visible = false;
+    meshState.path = "stl";
+    return meshState;
+  })();
+
   const reach = totalReach(cfg);
 
   function apply(state) {
@@ -215,9 +342,14 @@ export function buildArm(scene, cfg = ARM_CONFIG) {
       servos[i].position.set(...r2t(pos));
       servos[i].quaternion.copy(q3(F.joints[i].mat));
       setSpan(links[i], F.points[i], F.points[i + 1]);
+      // STL skin rides the SAME joint frames (visible only after meshes load)
+      stlGroups[i].position.set(...r2t(pos));
+      stlGroups[i].quaternion.copy(q3(F.joints[i].mat));
     }
     roll.position.set(...r2t(P4));
     roll.quaternion.copy(q3(F.joints[4].mat));
+    stlGroups[4].position.set(...r2t(P4));
+    stlGroups[4].quaternion.copy(q3(F.joints[4].mat));
 
     palm.position.set(...r2t(vadd(P4, vscale(F.toolDir, 0.014))));
     palm.quaternion.copy(q3(F.joints[4].mat));
@@ -234,11 +366,19 @@ export function buildArm(scene, cfg = ARM_CONFIG) {
     fingerL.position.set(...r2t(lPos));
     fingerR.position.set(...r2t(rPos));
 
+    // real moving jaw: hinge about JAW_AXIS, +100° open .. -10° closed (MJCF range)
+    if (jawMesh && jawBaseQuat) {
+      const jawTheta = JAW_OPEN_RAD + (JAW_CLOSE_RAD - JAW_OPEN_RAD) * Math.min(1, Math.max(0, state.close));
+      const q = new THREE.Quaternion().setFromAxisAngle(jawAxisThree, jawTheta);
+      jawMesh.quaternion.copy(jawBaseQuat).premultiply(q);
+    }
+
     targetGizmo.position.set(...r2t(state.ikTargetWorld || F.tcp));
     eeDot.position.set(...r2t(F.tcp));
 
     return F;
   }
 
-  return { group, apply, cfg, reach, targetGizmo, eeDot, meshes: { fingerL, fingerR, palm } };
+  return { group, apply, cfg, reach, targetGizmo, eeDot, meshes: { fingerL, fingerR, palm },
+           meshState, meshesReady };
 }

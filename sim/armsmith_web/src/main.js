@@ -3,7 +3,7 @@
 // handles every sim.cmd from docs/PROTOCOL.md.
 // ?autotest=1 → headless smoke mode (bus counters into #busstat after ~2 s)
 // ?hub=ws://host:port/ws → bus URL override   ?physics=dynamic → rapier dynamic arm
-// ?scenario=name → starting scenario
+// ?scenario=name → starting scenario          ?view=puppet → mirror an external sim (puppet.js)
 
 import * as THREE from "three";
 import { Physics } from "./physics.js";
@@ -31,17 +31,25 @@ const showError = window.__showRuntimeError || ((w, d) => {
 const $ = (id) => document.getElementById(id);
 if (window.__armsmithBoot) window.__armsmithBoot.module = true;
 
+// ?view=puppet → this page is a DISPLAY for an EXTERNAL simulator: puppet.js mirrors
+// sim.obs published on the Robot Bus (headless MuJoCo training → watch in three.js).
+// We skip creating the WebGL context here so the two apps never share one canvas, and
+// boot() (physics/loop/UI) never runs — see the branch at the bottom of this file.
+const PUPPET = new URLSearchParams(location.search).get("view") === "puppet";
+
 // ---------- three scene ----------
 const canvas = $("view");
 let renderer = null, renderBroken = false;
-try {
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
-  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
-  renderer.setSize(window.innerWidth, window.innerHeight, false);
-  renderer.autoClear = true;
-} catch (e) {
-  renderBroken = true;
-  console.warn("WebGL unavailable — continuing WITHOUT rendering (physics/telemetry still run)", e);
+if (!PUPPET) {
+  try {
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    renderer.setSize(window.innerWidth, window.innerHeight, false);
+    renderer.autoClear = true;
+  } catch (e) {
+    renderBroken = true;
+    console.warn("WebGL unavailable — continuing WITHOUT rendering (physics/telemetry still run)", e);
+  }
 }
 
 const scene = new THREE.Scene();
@@ -127,12 +135,60 @@ async function boot() {
   // episode bookkeeping
   state.ep = scenario.epIndex;
   recorder.start(state.ep, scenario.name, scenario.seed);
-  bus.publishEvent({ kind: "episode_start", ep: state.ep, scenario: scenario.name, seed: scenario.seed });
+  bus.publishEvent({ kind: "episode_start", ep: scenario.epIndex, scenario: scenario.name, seed: scenario.seed });
 
   setInterval(loop, 16);
   booted = true;
   if (window.__armsmithBoot) window.__armsmithBoot.boot = true;
   if (autotest) setTimeout(autotestTick, 2000);
+  // ?meshcheck=1 → headless FK acceptance probe (5 targets, ±15 mm), also reports
+  // which visual path loaded (meshes=stl|capsule) — see test/smoke_meshes.sh
+  if (query.has("meshcheck")) runMeshcheck();
+}
+
+// ---------- ?meshcheck=1 — FK acceptance probe + mesh-path report ----------
+// Drives the CONTROLLER (IK + servo chain) to five calibration targets and checks the
+// FK TCP lands within ±15 mm of each — the acceptance bound the rig was tuned to
+// (README: IK residual ≤ ~1 cm). Runs the probe in whatever visual path loaded; STL
+// fetches must not move FK (meshes are visual-only), so PASS is expected either way.
+let meshcheckNote = "";
+// Probe targets live in the WELL-CONDITIONED working band (radius 0.19–0.28 m from
+// the pan pivot). The close-in envelope (<~0.17 m) is genuinely unreachable — the
+// solver reports the honest residual there (README "Known limitations") — so probing
+// it would measure the mechanism, not the calibration.
+const MESHCHECK_TARGETS = [
+  [0.22, 0.00, 0.12], [0.20, 0.10, 0.10], [0.26, -0.06, 0.06],
+  [0.20, 0.00, 0.18], [0.24, 0.12, 0.08],
+];
+async function runMeshcheck() {
+  window.__meshcheckRunning = true;
+  // wait for the STL fetches to SETTLE (resolve on allSettled semantics, no timers —
+  // a failed fetch resolves quickly into the capsule fallback and the probe still runs)
+  await armVis.meshesReady;
+  ui.setMeshPath(armVis.meshState.path);
+  ctl.setMode("ik");
+  let maxErr = 0;
+  const errs = [];
+  try {
+    for (const t of MESHCHECK_TARGETS) {
+      ctl.setMouseTarget(t);
+      ctl.setMode("ik");                    // keep probe mode even alongside ?autotest=1
+      for (let i = 0; i < 240; i++) ctl.tick(DT);   // 4 s simulated convergence
+      const tcp = ctl.lastFk.tcp;
+      const err = Math.hypot(tcp[0] - t[0], tcp[1] - t[1], tcp[2] - t[2]) * 1000;
+      errs.push(err);
+      maxErr = Math.max(maxErr, err);
+    }
+  } catch (e) {
+    meshcheckNote = `meshcheck FAIL (${e && e.message}) meshes=${armVis.meshState.path}`;
+    window.__armsmithMesh = { meshcheck: "FAIL", error: String(e), meshes: armVis.meshState.path };
+    return;
+  }
+  const pass = maxErr <= 15.0;
+  const perTarget = errs.map((e) => e.toFixed(0)).join(",");
+  meshcheckNote = `meshcheck ${pass ? "PASS" : "FAIL"} max_err=${maxErr.toFixed(1)}mm [${perTarget}] meshes=${armVis.meshState.path}`;
+  window.__armsmithMesh = { meshcheck: pass ? "PASS" : "FAIL", maxErrMm: maxErr, meshes: armVis.meshState.path };
+  window.__meshcheckRunning = false;
 }
 
 // FK sample accessor for physics.setMode (may run before the controller exists → home pose)
@@ -294,7 +350,7 @@ function loop() {
 
   state.frame++;
   if (state.frame % 8 === 0) {
-    $("status").textContent = `running step=${state.step}`;
+    $("status").textContent = `running step=${state.step}${meshcheckNote ? "\n" + meshcheckNote : ""}`;
     if (window.__armsmithBoot) window.__armsmithBoot.step = state.step;
     ui.refresh(ctl.lastFk ? ctl.servoDeg.map((d) => d * (Math.PI / 180)) : [0, 0, 0, 0, 0],
       ctl.closeCmd, state.lastStall || { score: 0, stalled: false, reasons: [] },
@@ -412,16 +468,28 @@ function buildObs(prog, stall) {
 // ---------- autotest headless mode ----------
 function autotestTick() {
   // scripted control for a deterministic motion if nothing else is driving
-  if (ctl.mode !== "script" && ctl.mode !== "mocap") ctl.setMode("script");
-  setTimeout(() => {
+  // (?meshcheck=1 owns the controller while probing — don't switch it to script)
+  if (!meshcheckNote.startsWith("meshcheck")) {
+    // note empty until the probe finishes; while probing, leave the mode alone
+    if (!window.__meshcheckRunning && ctl.mode !== "script" && ctl.mode !== "mocap") ctl.setMode("script");
+  }
+  const write = () => {
     const b = bus;
-    const line = `autotest bus: sent=${b.sent} (obs ${b.obsSent}) recv=${b.recv} (cmds ${b.recvCmds}) step=${state.step} physics=${physics.mode} render=${renderBroken ? "off" : "on"}`;
+    const line = `autotest bus: sent=${b.sent} (obs ${b.obsSent}) recv=${b.recv} (cmds ${b.recvCmds}) step=${state.step} physics=${physics.mode} render=${renderBroken ? "off" : "on"} meshes=${armVis.meshState.path}`;
     ui.setBusstat(line);
-    $("status").textContent = `running step=${state.step}`;
-    window.__armsmith = { step: state.step, busSent: b.sent, obsSent: b.obsSent, recvCmds: b.recvCmds, physics: physics.mode };
-  }, 800);
+    $("status").textContent = `running step=${state.step}${meshcheckNote ? "\n" + meshcheckNote : ""}`;
+    window.__armsmith = { step: state.step, busSent: b.sent, obsSent: b.obsSent, recvCmds: b.recvCmds, physics: physics.mode, meshes: armVis.meshState.path };
+  };
+  setTimeout(write, 800);
+  // rewrite once meshes settle so the DOM carries the final meshes=stl|capsule verdict
+  armVis.meshesReady.then(() => { ui.setMeshPath(armVis.meshState.path); write(); });
 }
 
-boot().catch((e) => { showError("boot", e && (e.stack || e.message) || String(e)); });
+if (PUPPET) {
+  import("./puppet.js").then((m) => m.bootPuppet())
+    .catch((e) => showError("puppet", e && (e.stack || e.message) || String(e)));
+} else {
+  boot().catch((e) => { showError("boot", e && (e.stack || e.message) || String(e)); });
+}
 
 let booted = false;

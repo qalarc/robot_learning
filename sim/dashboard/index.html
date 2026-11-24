@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RL mission control — robot_learning</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<header id="top">
+  <div class="brand">
+    <h1>robot_learning <span>mission control</span></h1>
+    <div class="sub">run → capture → find the failure → fix → run again</div>
+  </div>
+  <div id="busBanner" class="banner warn">bus offline — retrying…</div>
+  <div class="runrow">
+    <div class="k"><label>run</label><b id="runField">—</b></div>
+    <div class="k"><label>policy</label><b id="policyField">—</b></div>
+    <div class="k"><label>stage</label><b id="stageField">—</b></div>
+    <div class="k"><label>fps</label><b id="fpsField">—</b></div>
+    <div class="k"><label>timesteps</label><b id="tsField">—</b></div>
+    <div class="k"><label>elapsed</label><b id="elapsedField">—</b></div>
+  </div>
+</header>
+
+<main>
+  <section id="ninesCard" class="card">
+    <h2>nines · −log₁₀(failure rate)</h2>
+    <div class="ninesrow">
+      <div class="ninesbox before">
+        <label>baseline</label>
+        <div id="ninesBase" class="nines">—</div>
+      </div>
+      <div id="ninesArrow" class="arrow" title="baseline → now">→</div>
+      <div class="ninesbox after">
+        <label>now</label>
+        <div id="nines" class="nines">—</div>
+      </div>
+    </div>
+    <div id="ninesDetail" class="detail">waiting for train.metrics…</div>
+  </section>
+
+  <section class="card chartcard">
+    <h2>success rate ↑ vs timesteps</h2>
+    <canvas id="chartSuccess" width="560" height="200"></canvas>
+  </section>
+
+  <section class="card chartcard">
+    <h2>ep_rew_mean vs timesteps</h2>
+    <canvas id="chartReward" width="560" height="200"></canvas>
+  </section>
+
+  <section id="stallCard" class="card">
+    <h2>stall loop · System 1 → System 2</h2>
+    <div class="grid2">
+      <div class="k"><label>stalls seen</label><b id="stallCount">0</b></div>
+      <div class="k"><label>recoveries</label><b id="recovCount">0</b></div>
+      <div class="k"><label>escalation ok</label><b id="escOk" class="good">0</b></div>
+      <div class="k"><label>escalation fail</label><b id="escFail" class="bad">0</b></div>
+    </div>
+    <table id="recovTable">
+      <thead><tr><th>recovery source</th><th>count</th></tr></thead>
+      <tbody id="recovBody"><tr class="empty"><td colspan="2">no ctl.recovery yet</td></tr></tbody>
+    </table>
+    <div id="stallDetail" class="detail">counter-free: ctl.stall / ctl.recovery accumulate here live.</div>
+  </section>
+
+  <section id="rosterCard" class="card">
+    <h2>bus roster</h2>
+    <table id="rosterTable">
+      <thead><tr><th>name</th><th>roles</th><th>uptime</th><th>rx/tx</th></tr></thead>
+      <tbody id="rosterBody"><tr class="empty"><td colspan="4">—</td></tr></tbody>
+    </table>
+  </section>
+
+  <section class="card wide">
+    <h2>puppet viewer · external sim (<span id="puppetSrc">http://127.0.0.1:8891/?view=puppet</span>)</h2>
+    <iframe id="puppetFrame" src="about:blank" title="puppet viewer"></iframe>
+    <div class="detail">iframe → sim/armsmith_web <code>?view=puppet</code>: mirrors whatever <code>sim.obs</code> says on the bus (headless MuJoCo or the three.js sim itself).</div>
+  </section>
+</main>
+
+<noscript>needs JavaScript</noscript>
+<script src="./app.js" defer></script>
+</body>
+</html>
