@@ -150,3 +150,92 @@ Fake data without training:
 ```bash
 sim/py/.venv/bin/python sim/dashboard/test/fake_publisher.py   # src "mujoco-demo", 30 Hz
 ```
+
+## Real meshes + real properties (2026-11-24)
+
+The arm is no longer "capsules that suggest an SO-101": the sim now skins itself with
+the **official STL meshes** and carries the **calibrated physical properties** from the
+same upstream release.
+
+### What came from where
+
+| thing | source |
+|---|---|
+| visual meshes (13 STLs, in **metres**) | `assets/so101/*.stl` — verbatim copies of `TheRobotStudio/SO-ARM100` `Simulation/SO101/assets/` (so101_new_calib set), Apache-2.0 (licence shipped next to them; also in `sim/mujoco/so101_official/`) |
+| mesh placement per joint | derived from the MJCF geom `pos`/`quat` of `so101_new_calib.xml` (same repo), adapted to this sim's planar skeleton — see below |
+| masses, joint ranges, damping/armature/frictionloss, actuator kp/kv/forcerange, jaw travel | `sim/mujoco/so101_official/so101_new_calib.xml`, parsed and frozen into `REAL_SO101` (`src/arm_config.js`) |
+| STLLoader | vendored `vendor/loaders/STLLoader.js` from npm `three@0.187.0` — the **same r187** as the vendored `three.module.js` (its import map entry `three/` resolves it; the trimmed build already re-exports `Loader`/`FileLoader`/`LoaderUtils`) |
+
+### The placement derivation (why the numbers in robot.js are what they are)
+
+The web rig uses a *planar idealisation* of the SO-101 (arm_config.js: lift pivot
+55 mm diagonal behind the pan pivot, lateral offsets collapsed). The MJCF chain is a
+rotated-frame chain whose zero pose is *not* arm-up (upper arm leans 14° fwd, forearm
+horizontal). To put real meshes on the planar rig without touching the accepted FK/IK
+math, `robot.js` attaches each STL inside the **web joint frames** with constants
+derived numerically (`/tmp/rl_b4/compute_placements3.py`, 2026-11-24):
+
+1. solve the URDF configuration q* (lift −13.968°, elbow −73.825°, wrist −2.207°) that
+   makes the CAD chain stand arm-straight-up = the web zero pose;
+2. verify the rotation axes at q*: all pitch joints rotate about world **+y** (same as
+   the web), pan and wrist_roll about **−z** (so `θ_pan = −yaw`, `θ_roll = −roll`); with
+   those signs a fixed local quaternion per mesh tracks the CAD motion exactly —
+   **verified < 1e-5° orientation error over 200 random poses**;
+3. mesh local pos = CAD world pos at q* − web pivot, with lateral y collapsed to 0
+   (planar bones, like the rest of the rig); local quat = CAD world quat at q*;
+4. the moving jaw animates about the MJCF gripper hinge axis
+   `[0.0487, −0.9988, 0]` (its 2.79° calibration offset included): `+100°` = open,
+   `−10°` = closed (`close` 0→1 maps linearly between them) — vertex-level check:
+   at −10° the jaw tip band sits flush with the fixed-jaw tips (Δz 2 mm), at +100° it
+   has swung ~70 mm away.
+
+Known idealisation kept honest: because meshes anchor to the web pivots, they ride
+~6 cm aft of their CAD-world position (the web lift-pivot offset) and the web TCP
+differs from CAD by 70–150 mm depending on pose — that is the *pre-existing* planar
+skeleton simplification, unchanged; meshes track the web FK perfectly, so gripper/EE
+dot/grasp logic agree with what you see.
+
+### Fallback design (the sim never breaks)
+
+`buildArm()` builds the original capsule/box rig first, then fetches the 13 STLs
+(async, deduped by file). Only if **every** fetch+parse succeeds does it swap — atomically —
+to the STL skin (dark-grey structure `#57606c` + amber servos `#cf9d3f`, flat shading)
+and hide the primitives. Any single failure (404, corrupt file, missing STLLoader) keeps
+the capsule rig silently. The active path is reported as `meshes=stl|capsule` in
+`#status`/`#busstat` (and the SPEC panel), decided **without timers** (fetches resolve on
+allSettled semantics), so headless DOM dumps are deterministic. FK/IK/grasp/bus behaviour
+is identical on both paths — meshes are visual-only.
+
+### Mapping table: joints → STLs → ranges → masses
+(all ranges/rates from `so101_new_calib.xml`, verified 2026-11-24)
+
+| web joint | servo | STL meshes carried (MJCF link) | range (rad) | link mass |
+|---|---|---|---|---|
+| 0 shoulder_pan (yaw) | STS3215 #1 | rotation_pitch, motor_holder_base, sts3215 ×1 (`shoulder`) | ±1.9199 (±110°) | 100 g |
+| 1 shoulder_lift (pitch) | #2 | upper_arm, sts3215 ×1 (`upper_arm`) | ±1.7453 (±100°) | 103 g |
+| 2 elbow_flex (pitch) | #3 | under_arm, motor_holder_wrist, sts3215 ×1 (`lower_arm`) | ±1.69 (±96.83°) | 104 g |
+| 3 wrist_flex (pitch) | #4 | wrist_roll_pitch, sts3215_no_horn (`wrist`) | ±1.6581 (±95°) | 79 g |
+| 4 wrist_roll (roll) | #5 | wrist_roll_follower, sts3215 ×1, moving_jaw (animated) (`gripper`+`moving_jaw`) | −2.7439…+2.8412 (−157.2°…+162.8°) | 87 g (+12 g jaw) |
+| — static base | — | base, base_motor_holder, sts3215 (pan servo), waveshare plate (`base`) | — | 147 g |
+
+Actuator (every joint): position `kp 998.22`, `kv 2.731`, forcerange **±3.35 N·m**;
+joint `damping 0.60`, `frictionloss 0.052`, `armature 0.028`; servo 4096 ticks/rev
+(0.088°/tick), 270°/s. Total mass **632 g**. These flow into: `ServoModel`
+(torque cap 1.6 → 3.35 N·m), the dynamic-mode Rapier motors (PD gains + motor force
+clamp replace the eyeballed 260/14/34) and the collider masses (`setMass` per link),
+plus the HUD **SPEC panel** (collapsible, in `ui.js`, values read from `REAL_SO101` —
+no hard-coded spec strings).
+
+### Tests
+
+- `test/smoke.sh` — as before, plus asserts `meshcheck PASS` (FK lands within ±15 mm on
+  5 well-conditioned probe targets — radius 0.19–0.28 m; the close-in envelope is
+  genuinely unreachable, see Known limitations) and prints the visual path
+  (`meshes=stl|capsule`, both accepted here). Hub moved to **8893** (8890-8892 are the
+  standing dev bus/sim/Laya ports). Fresh chromium profile per run — a reused profile
+  serves cached `src/*.js` and tests yesterday's code.
+- `test/smoke_meshes.sh` (new) — asserts `meshes=stl` in the dumped DOM, `meshcheck PASS`
+  **with meshes on**, and ≥13 `.stl` 200s in the http log (proves the real load path).
+- `test/smoke_puppet.sh` — unchanged assertions; puppet mode gets the STL skin for free
+  (same `buildArm`). Its watchdog now uses wall-clock `Date.now` (obs silence is a
+  real-time concept; the virtualised `performance.now` outran the websocket stream).
