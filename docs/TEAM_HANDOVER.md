@@ -10,8 +10,8 @@ Status date: **24 Nov 2026**. This is the onboarding document — read it top to
 
 ## 0b. The roster (2026-11-24)
 
-Mia (lead), Alexei (sim/scenarios), Khartik (training/metrics), Mannus (vision/teleop),
-John (systems/infra), Pugalproceed (data/integration/MCAP). Everyone applies **by Sun 29
+Mia (lead), Alexei (sim/scenarios), Khartik (training/metrics), Mannan (vision/teleop),
+John (systems/infra), Pugal (data/integration/MCAP). Everyone applies **by Sun 29
 Nov** — link in README. Day roles: deck slide 11 (https://qalarc.com/projects/robots/deck/).
 
 ## 0. The pitch (what we are building)
